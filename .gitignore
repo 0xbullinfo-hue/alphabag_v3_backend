@@ -1,0 +1,22 @@
+# Dependency directories
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Temporary/Cache files
+*.tmp
+.eslintcache
+
+# Editor & OS settings
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
