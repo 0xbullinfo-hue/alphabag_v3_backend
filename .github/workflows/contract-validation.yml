@@ -24,3 +24,6 @@ jobs:
 
       - name: Validate OpenAPI contract
         run: npm run validate
+
+      - name: Run admin contract tests
+        run: npm run test:contracts
