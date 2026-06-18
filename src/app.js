@@ -35,6 +35,7 @@ import t2eRoutes from './routes/t2eRoutes.js';
 import proxyRoutes from './routes/proxyRoutes.js';
 import { marketRouter, whaleRouter, aiRouter, portfolioRouter } from './routes/serviceRoutes.js';
 import { streamNeuralCore } from './controllers/aiController.js';
+import { schemaValidationMiddleware } from './utils/schemaValidator.js';
 
 const app = express();
 
@@ -81,6 +82,10 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json());
+
+// OpenAPI Schema Validation — validates responses against contract (development mode)
+// Set SCHEMA_VALIDATION_STRICT=true to enforce strict validation
+app.use(schemaValidationMiddleware);
 
 // Rate Limiting — tiered by route sensitivity
 const authLimiter = rateLimit({

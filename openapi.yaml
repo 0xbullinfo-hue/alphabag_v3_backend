@@ -1,0 +1,1169 @@
+openapi: 3.0.0
+info:
+  title: AlphaBAG Airdrop & T2E API
+  description: |
+    Contract-locked API for mission tracking, task claiming, and token payouts.
+    All authenticated routes require Bearer token in Authorization header.
+  version: 1.0.0
+  contact:
+    name: AlphaBAG Dev Team
+
+servers:
+  - url: http://localhost:3003/api
+    description: Local development
+  - url: https://api.alphabag.xyz/api
+    description: Production
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # ─── SHARED SCHEMAS ───────────────────────────────────────────────────────────
+
+    Mission:
+      type: object
+      required:
+        - id
+        - title
+        - type
+        - frequency
+        - status
+        - rewardTokens
+      properties:
+        id:
+          type: string
+          description: Unique mission identifier
+          example: t2e_daily_claim
+        title:
+          type: string
+          example: Daily Claim
+        description:
+          type: string
+          example: Claim your daily rewards
+        type:
+          type: string
+          enum: [SOCIAL, SURVEY, CONTENT, FINAL_REVIEW]
+          example: SOCIAL
+        frequency:
+          type: string
+          enum: [ONCE, DAILY, WEEKLY]
+          example: DAILY
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED, COMPLETED]
+          example: ACTIVE
+        rewardTokens:
+          type: number
+          example: 100
+        rewardXP:
+          type: number
+          example: 100
+        requiresLink:
+          type: boolean
+          example: true
+        requiresFeedback:
+          type: boolean
+          example: false
+        actionUrl:
+          type: string
+          example: https://twitter.com/alphabag
+        createdAt:
+          type: string
+          format: date-time
+
+    MissionListResponse:
+      type: object
+      required:
+        - missions
+        - total
+        - page
+        - limit
+        - totalPages
+      properties:
+        missions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mission'
+        total:
+          type: integer
+          example: 25
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        totalPages:
+          type: integer
+          example: 2
+        isDeactivated:
+          type: boolean
+          example: false
+        message:
+          type: string
+
+    PayoutRequest:
+      type: object
+      required:
+        - id
+        - userId
+        - status
+        - expectedTokens
+        - walletAddress
+        - createdAt
+      properties:
+        id:
+          type: string
+          example: abc123xyz
+        userId:
+          type: string
+          example: user123
+        status:
+          type: string
+          enum: [PENDING, APPROVED, SENT, REJECTED]
+          example: PENDING
+        expectedTokens:
+          type: number
+          example: 1000
+        walletAddress:
+          type: string
+          example: "0x742d35Cc6634C0532925a3b844Bc55e3F1b5f6Ae"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00Z"
+        sentAt:
+          type: string
+          format: date-time
+          nullable: true
+        txReference:
+          type: string
+          nullable: true
+          example: "0x1234...abcd"
+
+    ClaimMissionRequest:
+      type: object
+      required:
+        - missionId
+      properties:
+        missionId:
+          type: string
+          example: t2e_daily_claim
+        taskId:
+          type: string
+          description: Alias for missionId (backward compatibility)
+          example: t2e_daily_claim
+        proofLink:
+          type: string
+          description: Evidence of task completion
+          example: https://twitter.com/example
+        taskLink:
+          type: string
+          description: Alias for proofLink (backward compatibility)
+        feedback:
+          type: string
+          description: Required for FINAL_REVIEW missions
+          example: Great experience!
+
+    ClaimMissionResponse:
+      type: object
+      required:
+        - success
+        - rewardTokens
+        - items
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        rewardTokens:
+          type: number
+          example: 100
+        rewardXP:
+          type: number
+          example: 100
+        items:
+          type: number
+          description: User's updated items balance
+          example: 1000
+        message:
+          type: string
+          example: "Mission completed. +100 ITEMS awarded."
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: Mission not found
+        details:
+          type: string
+          example: "Optional error details"
+
+    # ─── AIRDROP SCHEMAS ──────────────────────────────────────────────────────────
+
+    AirdropSettings:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ACTIVE, WAITING, ENDED, INACTIVE]
+          example: ACTIVE
+        tokenTicker:
+          type: string
+          example: BAG
+        pointsPerClaim:
+          type: number
+          example: 100
+        durationDays:
+          type: number
+          example: 30
+        isSubmissionActive:
+          type: boolean
+          example: true
+        isPaused:
+          type: boolean
+          example: false
+        itemsToBagRate:
+          type: number
+          nullable: true
+          example: 1.5
+        campaignEnded:
+          type: boolean
+          description: Server-authoritative flag
+          example: false
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+
+    UserAirdropStatus:
+      type: object
+      properties:
+        points:
+          type: number
+          example: 500
+        canClaim:
+          type: boolean
+          example: true
+        lastClaimTime:
+          type: string
+          format: date-time
+          nullable: true
+        walletSubmitted:
+          type: string
+          nullable: true
+          example: "0x742d35Cc6634C0532925a3b844Bc55e3F1b5f6Ae"
+        payoutRequest:
+          $ref: '#/components/schemas/PayoutRequest'
+          nullable: true
+
+    AirdropStatusResponse:
+      type: object
+      required:
+        - settings
+        - reveal
+      properties:
+        settings:
+          $ref: '#/components/schemas/AirdropSettings'
+        reveal:
+          type: object
+          properties:
+            isRevealed:
+              type: boolean
+        userStatus:
+          $ref: '#/components/schemas/UserAirdropStatus'
+          nullable: true
+
+    SubmitWalletRequest:
+      type: object
+      required:
+        - walletAddress
+      properties:
+        walletAddress:
+          type: string
+          example: "0x742d35Cc6634C0532925a3b844Bc55e3F1b5f6Ae"
+
+    SubmitWalletResponse:
+      type: object
+      required:
+        - success
+        - message
+        - items
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Wallet submitted successfully"
+        items:
+          type: number
+          description: User's current items balance for frontend sync
+          example: 500
+
+    # ─── T2E TREASURY SCHEMAS ─────────────────────────────────────────────────────
+
+    TreasuryStatus:
+      type: object
+      required:
+        - id
+        - minimumClaimBalance
+        - intelligence
+      properties:
+        id:
+          type: string
+          example: global_config
+        minimumClaimBalance:
+          type: number
+          example: 500
+        itemsToBagRate:
+          type: number
+          nullable: true
+        isDeactivated:
+          type: boolean
+          example: false
+        intelligence:
+          type: object
+          required:
+            - totalEarned
+            - totalPending
+            - totalDisbursed
+          properties:
+            totalEarned:
+              type: number
+              description: Sum of all claimed rewards
+              example: 100000
+            totalPending:
+              type: number
+              description: Sum of all user balances awaiting payout
+              example: 25000
+            totalDisbursed:
+              type: number
+              description: Sum of approved and sent payouts
+              example: 50000
+
+    UserEarnProfile:
+      type: object
+      required:
+        - id
+        - items
+        - lifetimeEarned
+        - bagTokens
+      properties:
+        id:
+          type: string
+          example: user123
+        items:
+          type: number
+          example: 1000
+        lifetimeEarned:
+          type: number
+          example: 2500
+        bagTokens:
+          type: number
+          example: 500
+        preferredWallet:
+          type: string
+          example: "0x742d35Cc6634C0532925a3b844Bc55e3F1b5f6Ae"
+        syndicateRank:
+          type: string
+          example: RECRUIT
+        referralCount:
+          type: number
+          example: 5
+        claimedMissionIds:
+          type: array
+          items:
+            type: string
+          example: [t2e_daily_claim, t2e_weekly_survey]
+        minimumClaimBalance:
+          type: number
+          example: 500
+
+    PayoutRequestResponse:
+      type: object
+      required:
+        - success
+        - message
+        - requestId
+        - expectedTokens
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Payout request submitted successfully"
+        requestId:
+          type: string
+          example: req_abc123
+        expectedTokens:
+          type: number
+          example: 1000
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # AIRDROP ROUTES (PUBLIC + USER + ADMIN)
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  /airdrop/status:
+    get:
+      tags:
+        - Airdrop
+      summary: Get current airdrop campaign status
+      description: |
+        Returns campaign settings, user eligibility to claim, and payout request status.
+        Public access without auth shows campaign details only. Authenticated users also see their personal status.
+      parameters: []
+      responses:
+        '200':
+          description: Airdrop status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AirdropStatusResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/stats:
+    get:
+      tags:
+        - Airdrop
+      summary: Get airdrop campaign statistics
+      description: Returns entry counts, remaining spots, and TGE date.
+      responses:
+        '200':
+          description: Statistics retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalEntries:
+                    type: number
+                  founderEntries:
+                    type: number
+                  remainingSpots:
+                    type: number
+                  tgeDate:
+                    type: string
+                    format: date-time
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/claim:
+    post:
+      tags:
+        - Airdrop
+      summary: Claim airdrop points
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Points claimed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  points:
+                    type: number
+                  message:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Claim not eligible (e.g., already claimed today)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/submit-wallet:
+    post:
+      tags:
+        - Airdrop
+      summary: Submit wallet address for airdrop
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitWalletRequest'
+      responses:
+        '200':
+          description: Wallet submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitWalletResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid wallet address
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/convert:
+    post:
+      tags:
+        - Airdrop
+      summary: Convert items to BAG tokens
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amount
+              properties:
+                amount:
+                  type: number
+                  example: 100
+      responses:
+        '200':
+          description: Conversion successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  bagTokens:
+                    type: number
+                  itemsRemaining:
+                    type: number
+        '400':
+          description: Insufficient balance or invalid amount
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/payout:
+    post:
+      tags:
+        - Airdrop
+      summary: Request BAG token payout
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Payout request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutRequestResponse'
+        '400':
+          description: Insufficient balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/tasks:
+    get:
+      tags:
+        - Airdrop
+      summary: Get mission tasks list (alias for T2E missions)
+      description: Public access to list of available missions/tasks.
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [SOCIAL, SURVEY, CONTENT, FINAL_REVIEW, ALL]
+          example: ALL
+        - name: status
+          in: query
+          schema:
+            type: string
+            example: ACTIVE
+        - name: page
+          in: query
+          schema:
+            type: integer
+            example: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            example: 20
+      responses:
+        '200':
+          description: Tasks retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionListResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/tasks/complete:
+    post:
+      tags:
+        - Airdrop
+      summary: Complete a mission task (alias for T2E claim)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimMissionRequest'
+      responses:
+        '200':
+          description: Task completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimMissionResponse'
+        '400':
+          description: Task not eligible or not active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: User banned or T2E module deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # T2E ROUTES (PUBLIC + USER + ADMIN)
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  /v1/t2e/treasury-status:
+    get:
+      tags:
+        - T2E
+      summary: Get T2E treasury status and global configuration
+      description: Public access to treasury balance and global settings.
+      responses:
+        '200':
+          description: Treasury status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TreasuryStatus'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/missions:
+    get:
+      tags:
+        - T2E
+      summary: Get paginated T2E missions
+      description: Public access to all active missions with pagination support.
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [SOCIAL, SURVEY, CONTENT, FINAL_REVIEW, ALL]
+          example: ALL
+        - name: status
+          in: query
+          schema:
+            type: string
+            example: ACTIVE
+        - name: page
+          in: query
+          schema:
+            type: integer
+            example: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            example: 20
+      responses:
+        '200':
+          description: Missions retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionListResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/user/profile:
+    get:
+      tags:
+        - T2E
+      summary: Get user's T2E earn profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEarnProfile'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found in T2E registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/claim:
+    post:
+      tags:
+        - T2E
+      summary: Claim T2E mission reward
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimMissionRequest'
+      responses:
+        '200':
+          description: Mission claimed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimMissionResponse'
+        '400':
+          description: Mission not eligible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: User banned or T2E deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Mission not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/request-payout:
+    post:
+      tags:
+        - T2E
+      summary: Request T2E BAG token payout
+      description: Submit a payout request with minimum balance check.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Payout request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutRequestResponse'
+        '400':
+          description: Insufficient items balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/activity-feed:
+    get:
+      tags:
+        - T2E
+      summary: Get T2E activity feed
+      description: Public access to recent mission completion activities (last 20).
+      responses:
+        '200':
+          description: Activity feed retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    userHandle:
+                      type: string
+                    taskType:
+                      type: string
+                    pointsEarned:
+                      type: number
+                    createdAt:
+                      type: string
+                      format: date-time
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/leaderboard:
+    get:
+      tags:
+        - T2E
+      summary: Get T2E leaderboard (last 24h)
+      description: Top 10 earners in the last 24 hours.
+      responses:
+        '200':
+          description: Leaderboard retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    handle:
+                      type: string
+                    points:
+                      type: number
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # ADMIN ROUTES (PROTECTED)
+  # ═══════════════════════════════════════════════════════════════════════════════
+
+  /airdrop/admin/tasks:
+    get:
+      tags:
+        - Admin - Airdrop
+      summary: Get all missions (admin view)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Missions retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MissionListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (admin required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Create or update mission
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Mission'
+      responses:
+        '200':
+          description: Mission created/updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mission'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (admin required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/admin/token-requests:
+    get:
+      tags:
+        - Admin - T2E
+      summary: Get all payout token requests
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token requests retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PayoutRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (admin required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/admin/token-requests/{id}/approve:
+    post:
+      tags:
+        - Admin - T2E
+      summary: Approve a token request
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: req_abc123
+      responses:
+        '200':
+          description: Request approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (admin required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/admin/token-requests/{id}/mark-done:
+    post:
+      tags:
+        - Admin - T2E
+      summary: Mark token request as sent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request marked as sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  txReference:
+                    type: string
+                    nullable: true
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (admin required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
