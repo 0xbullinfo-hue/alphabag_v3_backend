@@ -468,6 +468,399 @@ components:
           type: number
           example: 1000
 
+    GenericSuccessResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+
+    AdminMissionStatusResponse:
+      type: object
+      required:
+        - isPaused
+      properties:
+        isPaused:
+          type: boolean
+          example: false
+        pausedAt:
+          type: string
+          format: date-time
+          nullable: true
+        tgeDate:
+          type: string
+          format: date-time
+          nullable: true
+
+    PauseMissionRequest:
+      type: object
+      required:
+        - paused
+      properties:
+        paused:
+          type: boolean
+          example: true
+
+    PauseMissionResponse:
+      type: object
+      required:
+        - success
+        - isPaused
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        isPaused:
+          type: boolean
+          example: true
+        message:
+          type: string
+
+    TgeDateRequest:
+      type: object
+      required:
+        - tgeDate
+      properties:
+        tgeDate:
+          type: string
+          format: date-time
+
+    TgeDateResponse:
+      type: object
+      required:
+        - success
+        - tgeDate
+      properties:
+        success:
+          type: boolean
+          example: true
+        tgeDate:
+          type: string
+          format: date-time
+
+    AdjustTreasuryRequest:
+      type: object
+      properties:
+        minimumClaimBalance:
+          type: number
+          example: 500
+        itemsToBagRate:
+          type: number
+          nullable: true
+          example: 10
+        campaignEnded:
+          type: boolean
+          example: false
+
+    AdjustTreasuryResponse:
+      type: object
+      required:
+        - success
+        - config
+      properties:
+        success:
+          type: boolean
+          example: true
+        config:
+          type: object
+          properties:
+            id:
+              type: string
+              example: global_config
+            minimumClaimBalance:
+              type: number
+            itemsToBagRate:
+              type: number
+              nullable: true
+            campaignEnded:
+              type: boolean
+
+    AdminWalletEntry:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        wallet:
+          type: string
+        submittedWallet:
+          type: string
+          nullable: true
+        xLink:
+          type: string
+        reviewComment:
+          type: string
+        points:
+          type: number
+        referralCount:
+          type: number
+        accountType:
+          type: string
+        history:
+          type: array
+          items:
+            type: object
+        isFounderRequest:
+          type: boolean
+        isFounderAirdrop:
+          type: boolean
+        projectName:
+          type: string
+          nullable: true
+        projectTicker:
+          type: string
+          nullable: true
+        projectManifesto:
+          type: string
+          nullable: true
+        projectSocial:
+          type: string
+          nullable: true
+        projectWebsite:
+          type: string
+          nullable: true
+        projectContract:
+          type: string
+          nullable: true
+        projectGoals:
+          type: string
+          nullable: true
+        founderSocial:
+          type: string
+          nullable: true
+        airdropSubmittedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    AdminStrikeLogEntry:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        adminId:
+          type: string
+        reason:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    AdminActivityEntry:
+      type: object
+      required:
+        - id
+        - createdAt
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        missionId:
+          type: string
+        rewardTokens:
+          type: number
+        pointsEarned:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+            email:
+              type: string
+            verifiedWallet:
+              type: string
+            walletAddress:
+              type: string
+        mission:
+          type: object
+          properties:
+            id:
+              type: string
+            title:
+              type: string
+            type:
+              type: string
+
+    AdminTokenRequest:
+      type: object
+      required:
+        - id
+        - userId
+        - status
+        - expectedTokens
+        - walletAddress
+        - createdAt
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, APPROVED, SENT, REJECTED]
+        expectedTokens:
+          type: number
+        walletAddress:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        sentAt:
+          type: string
+          format: date-time
+          nullable: true
+        txReference:
+          type: string
+          nullable: true
+        txHash:
+          type: string
+          nullable: true
+        processedBy:
+          type: string
+          nullable: true
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+            email:
+              type: string
+            verifiedWallet:
+              type: string
+            walletAddress:
+              type: string
+
+    ApproveTokenRequestRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [APPROVED, REJECTED]
+          example: APPROVED
+
+    ApproveTokenRequestResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        txHash:
+          type: string
+
+    MarkDoneRequest:
+      type: object
+      properties:
+        txReference:
+          type: string
+          nullable: true
+
+    BulkIdsRequest:
+      type: object
+      required:
+        - ids
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+
+    BonusXpRequest:
+      type: object
+      required:
+        - userId
+        - bonusTokens
+      properties:
+        userId:
+          type: string
+        bonusTokens:
+          type: number
+
+    BonusXpResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        newTotal:
+          type: number
+        strikes:
+          type: number
+        isBanned:
+          type: boolean
+
+    StrikeRequest:
+      type: object
+      required:
+        - userId
+      properties:
+        userId:
+          type: string
+        reason:
+          type: string
+
+    StrikeResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        strikes:
+          type: number
+        isBanned:
+          type: boolean
+
+    UnbanRequest:
+      type: object
+      required:
+        - userId
+      properties:
+        userId:
+          type: string
+
+    UnbanResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        user:
+          type: object
+
 security:
   - BearerAuth: []
 
@@ -1048,7 +1441,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MissionListResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/Mission'
         '401':
           description: Unauthorized
           content:
@@ -1080,7 +1475,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Mission'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  mission:
+                    $ref: '#/components/schemas/Mission'
         '401':
           description: Unauthorized
           content:
@@ -1093,6 +1493,294 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/admin/tasks/{id}:
+    delete:
+      tags:
+        - Admin - Airdrop
+      summary: Delete mission
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Mission deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (admin required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /airdrop/admin/wallets:
+    get:
+      tags:
+        - Admin - Airdrop
+      summary: Get submitted wallet and founder application records
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Wallet submissions retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminWalletEntry'
+
+  /airdrop/admin/mission-status:
+    get:
+      tags:
+        - Admin - Airdrop
+      summary: Get mission lifecycle status
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Mission status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMissionStatusResponse'
+
+  /airdrop/admin/pause-mission:
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Pause or resume mission claims
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PauseMissionRequest'
+      responses:
+        '200':
+          description: Mission pause state updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PauseMissionResponse'
+
+  /airdrop/admin/tge-date:
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Update mission TGE date
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TgeDateRequest'
+      responses:
+        '200':
+          description: TGE date updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TgeDateResponse'
+
+  /airdrop/admin/strikes:
+    get:
+      tags:
+        - Admin - Airdrop
+      summary: Get strike log
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Strike logs retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminStrikeLogEntry'
+
+  /airdrop/admin/bonus-xp:
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Add or deduct user items and apply strike on deductions
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BonusXpRequest'
+      responses:
+        '200':
+          description: Balance correction applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BonusXpResponse'
+
+  /airdrop/admin/strike:
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Issue strike to user
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StrikeRequest'
+      responses:
+        '200':
+          description: Strike issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StrikeResponse'
+
+  /airdrop/admin/unban:
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Unban user and reset strikes
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnbanRequest'
+      responses:
+        '200':
+          description: User unbanned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnbanResponse'
+
+  /airdrop/admin/approve-founder:
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Approve or reject founder application
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+                - status
+              properties:
+                userId:
+                  type: string
+                status:
+                  type: string
+                  enum: [APPROVED, REJECTED]
+      responses:
+        '200':
+          description: Founder status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  user:
+                    type: object
+
+  /airdrop/admin/export:
+    get:
+      tags:
+        - Admin - Airdrop
+      summary: Export mission snapshot CSV
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: CSV export file
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /airdrop/admin/full-wipe:
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Wipe mission data while preserving accounts
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Mission data wiped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+
+  /airdrop/admin/reset:
+    post:
+      tags:
+        - Admin - Airdrop
+      summary: Reset airdrop campaign and user balances
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Airdrop data reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+
+  /v1/t2e/admin/adjust-balance:
+    patch:
+      tags:
+        - Admin - T2E
+      summary: Update treasury configuration values
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustTreasuryRequest'
+      responses:
+        '200':
+          description: Treasury settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustTreasuryResponse'
 
   /v1/t2e/admin/token-requests:
     get:
@@ -1109,7 +1797,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/PayoutRequest'
+                  $ref: '#/components/schemas/AdminTokenRequest'
         '401':
           description: Unauthorized
           content:
@@ -1137,18 +1825,19 @@ paths:
           schema:
             type: string
           example: req_abc123
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveTokenRequestRequest'
       responses:
         '200':
           description: Request approved
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
+                $ref: '#/components/schemas/ApproveTokenRequestResponse'
         '401':
           description: Unauthorized
           content:
@@ -1181,19 +1870,19 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkDoneRequest'
       responses:
         '200':
           description: Request marked as sent
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  txReference:
-                    type: string
-                    nullable: true
+                $ref: '#/components/schemas/GenericSuccessResponse'
         '401':
           description: Unauthorized
           content:
@@ -1212,3 +1901,92 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/t2e/admin/activity:
+    get:
+      tags:
+        - Admin - T2E
+      summary: Get enriched mission claim activity feed for admin dashboard
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Activity feed retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminActivityEntry'
+
+  /v1/t2e/admin/token-requests/approve-all:
+    post:
+      tags:
+        - Admin - T2E
+      summary: Approve all pending payout requests
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Bulk approve completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+
+  /v1/t2e/admin/token-requests/mark-all-done:
+    post:
+      tags:
+        - Admin - T2E
+      summary: Mark all approved payout requests as sent
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkDoneRequest'
+      responses:
+        '200':
+          description: Bulk mark as sent completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+
+  /v1/t2e/admin/token-requests/reject-bulk:
+    post:
+      tags:
+        - Admin - T2E
+      summary: Reject selected pending payout requests
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkIdsRequest'
+      responses:
+        '200':
+          description: Bulk reject completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericSuccessResponse'
+
+  /v1/t2e/admin/token-requests/export-approved:
+    get:
+      tags:
+        - Admin - T2E
+      summary: Export approved payout requests as CSV
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: CSV export file
+          content:
+            text/csv:
+              schema:
+                type: string
