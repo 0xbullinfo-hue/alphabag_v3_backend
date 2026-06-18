@@ -286,11 +286,43 @@ components:
     SubmitWalletRequest:
       type: object
       required:
-        - walletAddress
+        - bscWallet
       properties:
-        walletAddress:
+        bscWallet:
           type: string
           example: "0x742d35Cc6634C0532925a3b844Bc55e3F1b5f6Ae"
+        xLink:
+          type: string
+          example: https://x.com/example
+        reviewComment:
+          type: string
+          example: Great product and UX.
+        isFounderRequest:
+          type: boolean
+          example: false
+        projectName:
+          type: string
+        projectTicker:
+          type: string
+        projectManifesto:
+          type: string
+        projectSocial:
+          type: string
+        projectWebsite:
+          type: string
+        projectContract:
+          type: string
+        projectGoals:
+          type: string
+        founderSocial:
+          type: string
+        projectLogo:
+          type: string
+        projectBanner:
+          type: string
+        grantReward:
+          type: boolean
+          example: true
 
     SubmitWalletResponse:
       type: object
@@ -309,6 +341,33 @@ components:
           type: number
           description: User's current items balance for frontend sync
           example: 500
+        bagTokens:
+          type: number
+          example: 5000
+        isFounder:
+          type: boolean
+          example: false
+
+    ConvertItemsResponse:
+      type: object
+      required:
+        - success
+        - message
+        - items
+        - bagTokens
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Successfully converted 100 ITEMS to 10 $BAG.
+        items:
+          type: number
+          example: 0
+        bagTokens:
+          type: number
+          example: 1500
 
     # ─── T2E TREASURY SCHEMAS ─────────────────────────────────────────────────────
 
@@ -395,7 +454,6 @@ components:
         - success
         - message
         - requestId
-        - expectedTokens
       properties:
         success:
           type: boolean
@@ -565,31 +623,18 @@ paths:
       security:
         - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required:
-                - amount
-              properties:
-                amount:
-                  type: number
-                  example: 100
       responses:
         '200':
           description: Conversion successful
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  bagTokens:
-                    type: number
-                  itemsRemaining:
-                    type: number
+                $ref: '#/components/schemas/ConvertItemsResponse'
         '400':
           description: Insufficient balance or invalid amount
           content:
