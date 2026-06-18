@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { store } from '../src/services/storeService.js';
-import { submitWallet, convertItemsToBag } from '../src/controllers/airdropController.js';
+import { claimPoints, submitWallet, convertItemsToBag } from '../src/controllers/airdropController.js';
 import { claimMission, requestBagPayout } from '../src/controllers/t2eController.js';
 
 const originalStoreMethods = {
@@ -145,6 +145,43 @@ test('convertItemsToBag returns contract fields and zeroes items', async () => {
     assert.equal(res.body.bagTokens, 210);
     assert.equal(db.users[0].items, 0);
     assert.equal(db.users[0].bagTokens, 210);
+});
+
+test('convertItemsToBag rejects empty ITEM balance with documented 400 error', async () => {
+    createMockStore({
+        users: [{ id: 'user-1', items: 0, bagTokens: 10 }],
+        t2e_config: [{ id: 'global_config', itemsToBagRate: 2 }],
+    });
+
+    const req = { user: { id: 'user-1' } };
+    const res = createRes();
+
+    await convertItemsToBag(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'You have no ITEMS to convert.');
+});
+
+test('claimPoints enforces 24-hour cooldown guard with documented 400 error', async () => {
+    const nowIso = new Date().toISOString();
+    createMockStore({
+        airdrop: [{ id: 'camp-1', status: 'ACTIVE', startDate: nowIso, durationDays: 7, pointsPerClaim: 50, tokenTicker: 'BAG' }],
+        users: [{
+            id: 'user-1',
+            bagTokens: 500,
+            claimsHistory: [{ campaignId: 'camp-1', date: nowIso, token: 'BAG', points: 50 }],
+        }],
+    });
+
+    const req = {
+        user: { id: 'user-1' },
+    };
+    const res = createRes();
+
+    await claimPoints(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'You must wait 24 hours between claims');
 });
 
 test('claimMission returns documented reward payload and updates user item balance', async () => {
