@@ -27,7 +27,7 @@ const __dirname = path.dirname(__filename);
 const ROOT = path.join(__dirname, '..');
 
 const SPEC_PATH = path.join(ROOT, 'openapi.yaml');
-const LAST_SPEC_PATH = path.join(ROOT, 'scripts', '.openapi.last.yaml');
+const LAST_SPEC_PATH = path.join(process.env.TEMP || process.env.TMP || ROOT, 'alphabag-openapi.last.yaml');
 
 let errors = [];
 let warnings = [];
