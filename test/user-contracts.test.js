@@ -106,6 +106,27 @@ test('submitWallet returns contract fields (success, message, bagTokens, items, 
     assert.equal(typeof res.body.isFounder, 'boolean');
 });
 
+test('submitWallet requires bscWallet and returns documented 400 error', async () => {
+    createMockStore({
+        users: [{ id: 'user-1', email: 'alpha@example.com', airdropSubmitted: false, bagTokens: 0 }],
+    });
+
+    const req = {
+        user: { id: 'user-1' },
+        body: {
+            xLink: 'https://x.com/example',
+            reviewComment: 'Great app',
+            isFounderRequest: false,
+        },
+    };
+    const res = createRes();
+
+    await submitWallet(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'BSC Wallet is required');
+});
+
 test('convertItemsToBag returns contract fields and zeroes items', async () => {
     const db = createMockStore({
         users: [{ id: 'user-1', items: 100, bagTokens: 10 }],
@@ -153,6 +174,49 @@ test('claimMission returns documented reward payload and updates user item balan
     assert.equal(db.t2e_claims.length, 1);
 });
 
+test('claimMission enforces ONCE frequency guard with documented error', async () => {
+    createMockStore({
+        users: [{ id: 'user-1', items: 0, lifetimeEarned: 0 }],
+        t2e_missions: [{ id: 'mission-1', status: 'ACTIVE', frequency: 'ONCE', rewardTokens: 75, rewardXP: 75, type: 'SOCIAL' }],
+        t2e_claims: [{ id: 'claim-1', userId: 'user-1', missionId: 'mission-1', rewardTokens: 75, createdAt: new Date().toISOString() }],
+        t2e_activity: [],
+        t2e_config: [{ id: 'global_config', isDeactivated: false }],
+    });
+
+    const req = {
+        user: { id: 'user-1' },
+        body: { missionId: 'mission-1' },
+    };
+    const res = createRes();
+
+    await claimMission(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'Mission already claimed');
+});
+
+test('claimMission enforces DAILY frequency guard with documented error', async () => {
+    const nowIso = new Date().toISOString();
+    createMockStore({
+        users: [{ id: 'user-1', items: 0, lifetimeEarned: 0 }],
+        t2e_missions: [{ id: 'mission-daily', status: 'ACTIVE', frequency: 'DAILY', rewardTokens: 40, rewardXP: 40, type: 'SOCIAL' }],
+        t2e_claims: [{ id: 'claim-1', userId: 'user-1', missionId: 'mission-daily', rewardTokens: 40, createdAt: nowIso }],
+        t2e_activity: [],
+        t2e_config: [{ id: 'global_config', isDeactivated: false }],
+    });
+
+    const req = {
+        user: { id: 'user-1' },
+        body: { missionId: 'mission-daily' },
+    };
+    const res = createRes();
+
+    await claimMission(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'Daily mission already completed. Come back in 24 hours.');
+});
+
 test('requestBagPayout returns success contract and creates request entry', async () => {
     const db = createMockStore({
         users: [{ id: 'user-1', items: 900, preferredWallet: '0xabc' }],
@@ -172,4 +236,20 @@ test('requestBagPayout returns success contract and creates request entry', asyn
     assert.equal(db.t2e_payout_requests.length, 1);
     assert.equal(db.t2e_payout_requests[0].expectedTokens, 900);
     assert.equal(db.users[0].items, 0);
+});
+
+test('requestBagPayout enforces minimum balance guard with documented error', async () => {
+    createMockStore({
+        users: [{ id: 'user-1', items: 300, preferredWallet: '0xabc' }],
+        t2e_config: [{ id: 'global_config', minimumClaimBalance: 500 }],
+        t2e_payout_requests: [],
+    });
+
+    const req = { user: { id: 'user-1' } };
+    const res = createRes();
+
+    await requestBagPayout(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'Minimum payout of 500 ITEMS required.');
 });
