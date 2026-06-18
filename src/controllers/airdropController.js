@@ -22,7 +22,11 @@ export const getAirdropStatus = async (req, res) => {
         let campaigns = await store.read('airdrop');
         if (!Array.isArray(campaigns)) campaigns = []; // Handle migration from object to array
 
-        const user = req.user && req.user.id ? await store.findOne('users', { id: req.user.id }) : null;
+        let user = null;
+        if (req.user && req.user.id) {
+            const users = await store.read('users') || [];
+            user = users.find(u => u.id && req.user.id && String(u.id).toLowerCase() === String(req.user.id).toLowerCase()) || null;
+        }
         const now = new Date();
 
         // Find the most recent campaign
@@ -286,7 +290,8 @@ export const submitWallet = async (req, res) => {
             success: true, 
             message: 'Airdrop submission received! Welcome to AlphaBAG.',
             isFounder: founderApproved,
-            bagTokens: updatedUser.bagTokens
+            bagTokens: updatedUser.bagTokens,
+            items: updatedUser.items || 0
         });
     } catch (error) {
         console.error("Airdrop Submit Error:", error);

@@ -277,8 +277,8 @@ export const claimMission = async (req, res) => {
                 lifetimeEarned: (Number(u.lifetimeEarned) || 0) + Number(mission.rewardTokens)
             };
 
-            // Strict binding for the Daily Terminal Reward timer
-            if (mission.id === 't2e_daily_claim') {
+            // Keep countdown timers authoritative for any DAILY mission.
+            if (mission.frequency === 'DAILY') {
                 updates.lastDailyTaskAt = fullNow;
             }
             if (mission.frequency === 'WEEKLY') {
@@ -288,7 +288,8 @@ export const claimMission = async (req, res) => {
                 updates.weeklyTasks = weeklyTasks;
             }
             if (mission.frequency === 'ONCE') {
-                updates.completedTasks = [...(u.completedTasks || []), mission.id];
+                const completedTasks = new Set([...(u.completedTasks || []), mission.id]);
+                updates.completedTasks = Array.from(completedTasks);
             }
 
             return updates;
@@ -309,7 +310,9 @@ export const claimMission = async (req, res) => {
         res.json({ 
             success: true, 
             rewardTokens: mission.rewardTokens,
-            rewardXP: mission.rewardXP || mission.rewardTokens
+            rewardXP: mission.rewardXP || mission.rewardTokens,
+            items: Number(user?.items) || 0,
+            message: `Mission completed. +${Number(mission.rewardTokens)} ITEMS awarded.`
         });
     } catch (error) {
         console.error('[T2E] Claim Error:', error.stack || error);
@@ -345,7 +348,11 @@ export const requestBagPayout = async (req, res) => {
         await store.create('t2e_payout_requests', request);
 
         // Deduct from Balance
-        await store.update('users', u => u.id === userId, () => ({ items: 0 }));
+        await store.update(
+            'users',
+            u => u.id && typeof u.id === 'string' && userId && typeof userId === 'string' && u.id.toLowerCase() === userId.toLowerCase(),
+            () => ({ items: 0 })
+        );
 
         t2eEmitter.emit('activityUpdate', {
             type: 'TOKEN_PAYOUT_REQUEST',
