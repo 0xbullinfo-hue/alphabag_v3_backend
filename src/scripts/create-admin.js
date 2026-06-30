@@ -12,25 +12,23 @@ const createAdmin = async () => {
     }
 
     await store.init();
-    const existing = await store.findOne('users', { email });
+    const existing = await store.findOne('admins', { email });
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     if (existing) {
-        console.log(`User ${email} already exists. promoting to Admin...`);
-        // Ideally update, but storeService.update isn't implemented generic yet.
-        // Let's just read all, update, write.
-        const users = await store.read('users');
-        const updated = users.map(u => u.email === email ? { ...u, isAdmin: true, tier: 'ULTIMATE' } : u);
-        await store.write('users', updated);
-        console.log('User promoted successfully.');
+        console.log(`Admin ${email} already exists. Updating password...`);
+        await store.update('admins', a => a.email === email, a => ({
+            password: hashedPassword,
+            updatedAt: new Date().toISOString()
+        }));
+        console.log('Admin password updated successfully.');
         process.exit(0);
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await store.create('users', {
+    await store.create('admins', {
+        id: 'admin_' + Date.now(),
         email,
         password: hashedPassword,
-        tier: 'ULTIMATE',
-        isAdmin: true,
         createdAt: new Date().toISOString()
     });
 

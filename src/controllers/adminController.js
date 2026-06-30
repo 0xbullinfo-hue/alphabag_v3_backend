@@ -33,7 +33,7 @@ export const getUsers = async (req, res) => {
         id: u.id,
         email: u.email,
         tier: u.tier,
-        isAdmin: u.isAdmin,
+        isAdmin: false,
         createdAt: u.createdAt,
         visits: u.visits,
         lastActive: u.lastActive,

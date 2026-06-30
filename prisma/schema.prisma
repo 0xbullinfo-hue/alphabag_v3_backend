@@ -1,0 +1,296 @@
+// ============================================================
+// AlphaBAG V3 — Prisma Schema
+// Maps all JSON data collections to PostgreSQL tables
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── USER ────────────────────────────────────────────────────────────────────
+// Core user identity, balances, airdrop submission, and referral tracking.
+
+model User {
+  id                  String    @id
+  email               String?   @unique
+  username            String?
+  tier                String    @default("FREE")
+  isBanned            Boolean   @default(false)
+  strikes             Int       @default(0)
+
+  // Balances
+  items               Float     @default(0)
+  bagTokens           Float     @default(0)
+  lifetimeEarned      Float     @default(0)
+  aipoints            Int       @default(0)
+
+  // Wallet
+  verifiedWallet      String?
+  submittedWallet     String?
+  preferredWallet     String?
+
+  // Airdrop submission
+  airdropSubmitted    Boolean   @default(false)
+  airdropSubmittedAt  DateTime?
+  xLink               String?
+  reviewComment       String?
+
+  // Founder application fields
+  isFounderAirdrop    Boolean   @default(false)
+  founderStatus       String?   @default("PENDING")
+  projectName         String?
+  projectTicker       String?
+  projectManifesto    String?
+  projectSocial       String?
+  projectWebsite      String?
+  projectContract     String?
+  projectGoals        String?
+  founderSocial       String?
+  projectLogo         String?
+  projectBanner       String?
+
+  // Referral
+  referralCode        String?   @unique
+  referredBy          String?
+  referralCount       Int       @default(0)
+
+  // Task tracking (serialized as JSON arrays/objects)
+  completedTasks      String[]  @default([])
+  claimsHistory       Json      @default("[]")
+  submittedLinks      Json      @default("[]")
+  weeklyTasks         Json      @default("{}")
+
+  // Activity tracking
+  visits              Int       @default(0)
+  lastLoginIp         String?
+  lastActive          DateTime?
+  lastDailyTaskAt     DateTime?
+  lastWeeklyTaskAt    DateTime?
+  syndicateRank       String?   @default("RECRUIT")
+
+  // Relations
+  t2eClaims           T2EClaim[]
+  payoutRequests      T2EPayoutRequest[]
+  submittedPairs      UserSubmittedPair[]
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("users")
+}
+
+// ─── ADMIN ───────────────────────────────────────────────────────────────────
+
+model Admin {
+  id        String   @id
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("admins")
+}
+
+// ─── NEWS ────────────────────────────────────────────────────────────────────
+
+model News {
+  id          String   @id
+  title       String
+  summary     String?
+  content     String?
+  category    String?
+  tier        String   @default("FREE")
+  imageUrl    String?
+  source      String?
+  isPremium   Boolean  @default(false)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("news")
+}
+
+// ─── SIGNALS ─────────────────────────────────────────────────────────────────
+
+model Signal {
+  id        String   @id
+  pair      String
+  type      String   // BUY | SELL | HOLD
+  entry     String?
+  stopLoss  String?
+  targets   String[] @default([])
+  narrative String?
+  category  String?  // SWING | SCALP | LONG
+  risk      String?  // LOW | MEDIUM | HIGH
+  status    String   @default("ACTIVE")
+  timestamp String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("signals")
+}
+
+// ─── PROJECTS ────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String   @id
+  name        String
+  ticker      String?
+  description String?
+  website     String?
+  twitter     String?
+  telegram    String?
+  contract    String?
+  chain       String?
+  category    String?
+  status      String   @default("ACTIVE")
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("projects")
+}
+
+// ─── AIRDROP CAMPAIGN ────────────────────────────────────────────────────────
+
+model AirdropCampaign {
+  id                  String   @id
+  tokenTicker         String   @default("🔒")
+  pointsPerClaim      Int      @default(50)
+  durationDays        Int      @default(7)
+  startDate           DateTime @default(now())
+  status              String   @default("ACTIVE")
+  isSubmissionActive  Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("airdrop_campaigns")
+}
+
+// ─── T2E MISSIONS ────────────────────────────────────────────────────────────
+
+model T2EMission {
+  id           String   @id
+  title        String
+  description  String?
+  rewardTokens Float    @default(0)
+  rewardXP     Float    @default(0)
+  type         String   @default("SOCIAL")    // SOCIAL | REFERRAL | FINAL_REVIEW
+  frequency    String   @default("ONCE")      // ONCE | DAILY | WEEKLY | UNLIMITED
+  requiresLink Boolean  @default(false)
+  actionUrl    String?
+  platform     String?  @default("SOCIAL")
+  category     String?  @default("GENERAL")
+  status       String   @default("ACTIVE")    // ACTIVE | PAUSED | ARCHIVED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  claims       T2EClaim[]
+
+  @@map("t2e_missions")
+}
+
+// ─── T2E CLAIMS ──────────────────────────────────────────────────────────────
+
+model T2EClaim {
+  id           String     @id
+  userId       String
+  missionId    String
+  proofLink    String?
+  feedback     String?
+  rewardTokens Float      @default(0)
+  rewardXP     Float      @default(0)
+  createdAt    DateTime   @default(now())
+
+  user         User       @relation(fields: [userId], references: [id])
+  mission      T2EMission @relation(fields: [missionId], references: [id])
+
+  @@map("t2e_claims")
+}
+
+// ─── T2E ACTIVITY FEED ───────────────────────────────────────────────────────
+
+model T2EActivity {
+  id           String   @id
+  userHandle   String
+  taskType     String
+  pointsEarned Float    @default(0)
+  createdAt    DateTime @default(now())
+
+  @@map("t2e_activity")
+}
+
+// ─── T2E PAYOUT REQUESTS ─────────────────────────────────────────────────────
+
+model T2EPayoutRequest {
+  id             String    @id
+  userId         String
+  expectedTokens Float
+  walletAddress  String
+  status         String    @default("PENDING")  // PENDING | APPROVED | REJECTED | SENT
+  txHash         String?
+  txReference    String?
+  sentAt         DateTime?
+  processedBy    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@map("t2e_payout_requests")
+}
+
+// ─── LEGACY TASKS (airdropController tasks store) ────────────────────────────
+
+model Task {
+  id           String   @id
+  title        String?
+  description  String?
+  type         String   @default("once")     // once | daily | weekly | unlimited
+  rewardTokens Float    @default(0)
+  requiresLink Boolean  @default(false)
+  actionUrl    String?
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("tasks")
+}
+
+// ─── USER SUBMITTED PAIRS ────────────────────────────────────────────────────
+
+model UserSubmittedPair {
+  id              String    @id
+  userId          String
+  contractAddress String    @unique
+  chainId         String?
+  symbol          String?
+  name            String?
+  priceUsd        String?
+  liquidity       Float?
+  dexUrl          String?
+  isBoosted       Boolean   @default(false)
+  boostExpiry     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@map("user_submitted_pairs")
+}
+
+// ─── SYSTEM CONFIG ───────────────────────────────────────────────────────────
+// Generic key-value store for singleton configs:
+// reveal, missionSettings, t2e_config, activity feed, etc.
+
+model SystemConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_configs")
+}

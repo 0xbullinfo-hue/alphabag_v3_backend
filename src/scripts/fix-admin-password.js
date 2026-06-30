@@ -14,7 +14,7 @@ async function fixPassword() {
         const data = await fs.readFile(DATA_FILE, 'utf-8');
         const users = JSON.parse(data);
 
-        const adminEmail = 'admin@alphabagpro.com';
+        const adminEmail = 'adminbx1p@alphabagpro.com';
         const newPassword = 'admin123';
         const hashedPassword = await bcrypt.hash(newPassword, 10);
 

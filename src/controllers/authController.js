@@ -36,9 +36,7 @@ export const register = async (req, res) => {
 
     const newUser = await store.create('users', {
         email,
-        password: hashedPassword,
         tier: 'FREE',
-        isAdmin: false,
         referralCode,
         referredBy,
         referralCount: 0,
@@ -55,49 +53,59 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
     const { email, password, portal } = req.body; // portal: 'main' | 'admin'
+    const isAdminPortal = portal === 'admin';
+    const targetCollection = isAdminPortal ? 'admins' : 'users';
 
-    const user = await store.findOne('users', { email });
+    const user = await store.findOne(targetCollection, { email });
     console.log(`[LOGIN ATTEMPT] Email: ${email}, Portal: ${portal}`);
 
     if (!user) {
-        console.log(`[LOGIN FAIL] User not found: ${email}`);
+        console.log(`[LOGIN FAIL] User not found in ${targetCollection}: ${email}`);
         return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    // --- STRICT SEPARATION LOGIC ---
-    if (user.isAdmin) {
-        if (portal !== 'admin') {
-            return res.status(403).json({ error: 'Admin accounts must use the Command Portal.' });
-        }
-    } else {
-        // Regular User
-        if (portal === 'admin') {
-            return res.status(403).json({ error: 'Access Denied. Admins Only.' });
-        }
+    if (!user.password) {
+        console.log(`[LOGIN FAIL] User has no password set (Web3 only): ${email}`);
+        return res.status(400).json({ error: 'Invalid credentials' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    console.log(`[LOGIN CHECK] User: ${user.email}, IsAdmin: ${user.isAdmin}, PasswordMatch: ${isMatch}`);
+    console.log(`[LOGIN CHECK] User: ${user.email}, IsAdminPortal: ${isAdminPortal}, PasswordMatch: ${isMatch}`);
 
     if (!isMatch) {
         console.log(`[LOGIN FAIL] Password mismatch for ${user.email}`);
         return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    // Atomic Update
-    const updatedUser = await store.update('users', u => u.email === email, u => ({
-        visits: (u.visits || 0) + 1,
-        lastLoginIp: req.ip || req.connection.remoteAddress,
-        lastActive: new Date().toISOString()
-    }));
-
-    if (!updatedUser) {
-        // Should not happen as we found it before
-        return res.status(500).json({ error: 'Failed to update user stats' });
+    let userSafe;
+    if (isAdminPortal) {
+        // Update admin record updatedAt
+        const updatedAdmin = await store.update('admins', u => u.email === email, u => ({
+            updatedAt: new Date().toISOString()
+        }));
+        if (!updatedAdmin) {
+            return res.status(500).json({ error: 'Failed to update admin stats' });
+        }
+        const { password: _, ...adminSafe } = updatedAdmin;
+        userSafe = { ...adminSafe, isAdmin: true };
+    } else {
+        const updatedUser = await store.update('users', u => u.email === email, u => ({
+            visits: (u.visits || 0) + 1,
+            lastLoginIp: req.ip || req.connection.remoteAddress,
+            lastActive: new Date().toISOString()
+        }));
+        if (!updatedUser) {
+            return res.status(500).json({ error: 'Failed to update user stats' });
+        }
+        const { password: _, ...uSafe } = updatedUser;
+        userSafe = { ...uSafe, isAdmin: false };
     }
 
-    const { password: _, ...userSafe } = updatedUser;
-    const token = jwt.sign({ id: updatedUser.id, email: updatedUser.email, isAdmin: updatedUser.isAdmin }, config.jwtSecret, { expiresIn: '24h' });
+    const token = jwt.sign({ 
+        id: userSafe.id, 
+        email: userSafe.email, 
+        isAdmin: isAdminPortal 
+    }, config.jwtSecret, { expiresIn: '24h' });
 
     res.json({ token, user: userSafe });
 };
@@ -182,7 +190,6 @@ export const siweAuth = async (req, res) => {
                 referredBy,
                 referralCount: 0,
                 tier: 'ULTIMATE', 
-                isAdmin: false,
                 lastActive: new Date().toISOString()
             };
             await store.create('users', user);
@@ -200,7 +207,7 @@ export const siweAuth = async (req, res) => {
         const token = jwt.sign({ 
             id: user.id, 
             email: user.email, 
-            isAdmin: user.isAdmin,
+            isAdmin: false,
             wallet: user.verifiedWallet 
         }, config.jwtSecret, { expiresIn: '24h' });
 
