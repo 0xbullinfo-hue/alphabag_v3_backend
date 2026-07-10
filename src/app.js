@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from './config/env.js';
 import { store } from './services/storeService.js';
+import bcrypt from 'bcryptjs';
 import { connectDB } from './utils/db.js';
 
 // Connect to MongoDB if configured
@@ -160,6 +161,40 @@ app.get('/api/db-diagnostics', async (req, res) => {
             message: err.message,
             stack: err.stack
         });
+    }
+});
+
+app.get('/api/db-seed-admin', async (req, res) => {
+    try {
+        const { email, password, key } = req.query;
+        if (key !== 'figment-secure-seed-777') {
+            return res.status(403).json({ error: 'Forbidden: Invalid seed key' });
+        }
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Email and password parameters are required' });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const existing = await store.findOne('admins', { email });
+
+        if (existing) {
+            await store.update('admins', a => a.email === email, a => ({
+                password: hashedPassword,
+                updatedAt: new Date().toISOString()
+            }));
+            return res.json({ success: true, message: `Admin ${email} password updated successfully.` });
+        }
+
+        await store.create('admins', {
+            id: 'admin_' + Date.now(),
+            email,
+            password: hashedPassword,
+            createdAt: new Date().toISOString()
+        });
+
+        res.json({ success: true, message: `Admin ${email} created successfully.` });
+    } catch (err) {
+        res.status(500).json({ error: err.message, stack: err.stack });
     }
 });
 
