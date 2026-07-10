@@ -65,12 +65,18 @@ app.use(cors({
             'http://localhost:3003',
             'http://localhost:3004',
             'http://localhost:3005',
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://localhost:5175',
             'http://127.0.0.1:3000',
             'http://127.0.0.1:3001',
             'http://127.0.0.1:3002',
             'http://127.0.0.1:3003',
             'http://127.0.0.1:3004',
             'http://127.0.0.1:3005',
+            'http://127.0.0.1:5173',
+            'http://127.0.0.1:5174',
+            'http://127.0.0.1:5175',
         ].filter(Boolean);
         if (allowed.includes(origin) || process.env.FRONTEND_URL === '*') {
             return callback(null, true);
