@@ -143,6 +143,26 @@ app.use('/api', marketRouter);
 
 app.post('/api/neural-core', streamNeuralCore);
 
+app.get('/api/db-diagnostics', async (req, res) => {
+    try {
+        // Try to query prisma admin count directly
+        const admins = await store.read('admins');
+        res.json({
+            status: 'success',
+            database_url_masked: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:([^:@]+)@/, ':****@') : null,
+            adminsCount: admins.length,
+            message: 'Database connection check passed'
+        });
+    } catch (err) {
+        res.status(500).json({
+            status: 'error',
+            database_url_masked: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:([^:@]+)@/, ':****@') : null,
+            message: err.message,
+            stack: err.stack
+        });
+    }
+});
+
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ONLINE', 
