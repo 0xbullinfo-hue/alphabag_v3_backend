@@ -16,7 +16,7 @@ dotenv.config({ path: path.join(monorepoRoot, '.env') });
 dotenv.config({ path: path.join(monorepoRoot, '.env.local') });
 
 export const config = {
-    port: parseInt(process.env.PORT) || 3003,
+    port: process.env.PORT && isNaN(Number(process.env.PORT)) ? process.env.PORT : (parseInt(process.env.PORT) || 3003),
     jwtSecret: process.env.JWT_SECRET || 'alphabag-secret-key-change-in-prod-urgent',
     adminEmail: 'admin@alphabagpro.com', // Primary Test Admin
     databaseUrl: process.env.DATABASE_URL,

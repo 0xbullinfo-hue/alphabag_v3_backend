@@ -6,12 +6,19 @@ import './cron/heatIndexCron.js';
 
 const PORT = config.port;
 
-app.listen(PORT, '0.0.0.0', () => {
+const listenCallback = () => {
   console.log(`\n[SYSTEM] AlphaBAG Infrastructure Active`);
-  console.log(`[SYSTEM] Port: ${PORT} (Source: ${process.env.PORT ? '.env' : 'Default/Config'})`);
-  console.log(`[SYSTEM] Interface: 0.0.0.0 (Global)`);
+  console.log(`[SYSTEM] Port/Socket: ${PORT} (Source: ${process.env.PORT ? 'Environment' : 'Default/Config'})`);
   console.log(`[SYSTEM] Environment: ${process.env.NODE_ENV || 'development'}`);
   if (!config.jwtSecret || config.jwtSecret.includes('urgent')) {
     console.warn(`[WARNING] Using non-secure or default JWT Secret.`);
   }
-});
+};
+
+if (typeof PORT === 'string' && isNaN(Number(PORT))) {
+  // cPanel Passenger Unix Socket Mode
+  app.listen(PORT, listenCallback);
+} else {
+  // Local Port Mode
+  app.listen(Number(PORT), '0.0.0.0', listenCallback);
+}
