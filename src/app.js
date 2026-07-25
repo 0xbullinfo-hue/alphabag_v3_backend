@@ -9,6 +9,7 @@ import { config } from './config/env.js';
 import { store } from './services/storeService.js';
 import bcrypt from 'bcryptjs';
 import { connectDB } from './utils/db.js';
+import { verifyToken, verifyAdmin } from './middleware/authMiddleware.js';
 
 // Connect to MongoDB if configured
 connectDB();
@@ -34,8 +35,7 @@ import projectRoutes from './routes/projectRoutes.js';
 import livePairRoutes from './routes/livePairRoutes.js';
 import t2eRoutes from './routes/t2eRoutes.js';
 import proxyRoutes from './routes/proxyRoutes.js';
-import { marketRouter, whaleRouter, aiRouter, portfolioRouter } from './routes/serviceRoutes.js';
-import { streamNeuralCore } from './controllers/aiController.js';
+import { marketRouter, whaleRouter, aiRouter, portfolioRouter, cexRouter } from './routes/serviceRoutes.js';
 import { schemaValidationMiddleware } from './utils/schemaValidator.js';
 
 const app = express();
@@ -139,10 +139,26 @@ app.use('/api/proxy', proxyRoutes);
 app.use('/api/portfolio', portfolioRouter); // Moved up to ensure precedence
 app.use('/api/whale', whaleRouter); 
 app.use('/api/ai', aiRouter);
+app.use('/api/cex', cexRouter);
 app.use('/api', marketRouter);
 // NOTE: publicRoutes already mounted above at /api — do NOT mount again here
 
-app.post('/api/neural-core', streamNeuralCore);
+app.get('/api/db-diagnostics', verifyToken, verifyAdmin, async (req, res) => {
+    try {
+        const admins = await store.read('admins');
+        res.json({
+            status: 'success',
+            adminsCount: admins.length,
+            message: 'Database connection check passed'
+        });
+    } catch (err) {
+        console.error('[db-diagnostics]', err);
+        res.status(500).json({
+            status: 'error',
+            message: 'Database check failed. See server logs for details.'
+        });
+    }
+});
 
 app.get('/api/db-diagnostics', async (req, res) => {
     try {

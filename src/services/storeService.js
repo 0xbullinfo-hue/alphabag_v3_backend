@@ -242,6 +242,10 @@ class StoreService {
         });
     }
 
+    async updateById(collection, id, updateFn) {
+        return this.update(collection, item => item.id === id, updateFn);
+    }
+
     async update(collection, predicate, updateFn) {
         return this.lock(async () => {
             const modelName = collectionToModelMap[collection];

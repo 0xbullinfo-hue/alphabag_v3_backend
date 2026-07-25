@@ -25,6 +25,7 @@ export const getBalance = async (req, res) => {
 
         res.json({
             success: true,
+            verified: true,
             balances: relevantBalances,
             raw: balance
         });

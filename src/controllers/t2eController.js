@@ -5,8 +5,44 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const t2eEmitter = new EventEmitter();
+
+/**
+ * IMPORTANT — claimMission race condition, partial mitigation only:
+ *
+ * claimMission's "check existing claims, then create a new one" logic is
+ * two separate, non-atomic steps. Firing the same claim request multiple
+ * times concurrently (a simple scripted attack, or even just a
+ * double-click racing itself) lets every concurrent request pass the
+ * "already claimed?" check before any of them have written their claim
+ * yet — each one then proceeds to award the mission's reward, letting a
+ * user mint themselves the reward many times over from a single mission.
+ *
+ * This lock closes that race WITHIN one running server process — good
+ * enough for a single-instance deployment today. It does NOT protect
+ * across multiple instances/processes (each has its own separate lock
+ * map), which matters once this scales past one server. The real fix is
+ * a database-level unique constraint on (userId, claim-window) in the
+ * T2EClaim table, so Postgres itself rejects the duplicate insert instead
+ * of the application racing to check first. That requires a schema
+ * migration and should be tested against a real database rather than
+ * applied blind — see the accompanying audit notes for the exact schema
+ * change and controller update needed to complete this properly.
+ */
+const claimLocks = new Map();
+async function withClaimLock(key, fn) {
+    const previous = claimLocks.get(key) || Promise.resolve();
+    let release;
+    const current = new Promise(resolve => { release = resolve; });
+    claimLocks.set(key, previous.then(() => current));
+    await previous;
+    try {
+        return await fn();
+    } finally {
+        release();
+        if (claimLocks.get(key) === current) claimLocks.delete(key);
+    }
+}
 
 // ─── TREASURY / CONFIG ────────────────────────────────────────────────────────
 
@@ -233,80 +269,96 @@ export const claimMission = async (req, res) => {
             return res.status(400).json({ error: 'Final feedback is compulsory for this mission.' });
         }
 
-        const claims = await store.read('t2e_claims');
-        const userClaims = claims.filter(c => c.userId.toLowerCase() === userId.toLowerCase() && c.missionId === missionId);
+        // Everything from here down is the actual check-then-claim race
+        // window described in the module comment above — serialize it per
+        // user+mission so concurrent requests can't all pass the
+        // "already claimed?" check before any of them have written yet.
+        const lockKey = `${userId.toLowerCase()}:${missionId}`;
+        const result = await withClaimLock(lockKey, async () => {
+            const claims = await store.read('t2e_claims');
+            const userClaims = claims.filter(c => c.userId.toLowerCase() === userId.toLowerCase() && c.missionId === missionId);
 
-        // Check frequency limits
-        const now = new Date();
-        if (mission.frequency === 'ONCE' && userClaims.length > 0) {
-            return res.status(400).json({ error: 'Mission already claimed' });
-        }
-
-        if (mission.frequency === 'DAILY' && userClaims.length > 0) {
-            const lastClaim = new Date(userClaims.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0].createdAt);
-            if (now.getTime() - lastClaim.getTime() < 24 * 60 * 60 * 1000) {
-                return res.status(400).json({ error: 'Daily mission already completed. Come back in 24 hours.' });
+            // Check frequency limits
+            const now = new Date();
+            if (mission.frequency === 'ONCE' && userClaims.length > 0) {
+                return { error: 'Mission already claimed', status: 400 };
             }
-        }
 
-        if (mission.frequency === 'WEEKLY' && userClaims.length > 0) {
-            const lastClaim = new Date(userClaims.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0].createdAt);
-            if (now.getTime() - lastClaim.getTime() < 7 * 24 * 60 * 60 * 1000) {
-                return res.status(400).json({ error: 'Weekly mission already completed. Come back in 7 days.' });
+            if (mission.frequency === 'DAILY' && userClaims.length > 0) {
+                const lastClaim = new Date(userClaims.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0].createdAt);
+                if (now.getTime() - lastClaim.getTime() < 24 * 60 * 60 * 1000) {
+                    return { error: 'Daily mission already completed. Come back in 24 hours.', status: 400 };
+                }
             }
-        }
 
-        // Processing Claim
-        const newClaim = {
-            id: Math.random().toString(36).substr(2, 9),
-            userId,
-            missionId,
-            proofLink,
-            feedback,
-            rewardTokens: mission.rewardTokens,
-            rewardXP: mission.rewardXP || mission.rewardTokens,
-            createdAt: now.toISOString()
-        };
-        await store.create('t2e_claims', newClaim);
+            if (mission.frequency === 'WEEKLY' && userClaims.length > 0) {
+                const lastClaim = new Date(userClaims.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0].createdAt);
+                if (now.getTime() - lastClaim.getTime() < 7 * 24 * 60 * 60 * 1000) {
+                    return { error: 'Weekly mission already completed. Come back in 7 days.', status: 400 };
+                }
+            }
 
-        // Update User Balance (ITEMS) & Legacy Fields for Frontend
-        const fullNow = now.toISOString();
-        await store.update('users', u => u.id && typeof u.id === 'string' && userId && typeof userId === 'string' && u.id.toLowerCase() === userId.toLowerCase(), (u) => {
-            const updates = {
-                items: (Number(u.items) || 0) + Number(mission.rewardTokens),
-                lifetimeEarned: (Number(u.lifetimeEarned) || 0) + Number(mission.rewardTokens)
+            // Processing Claim
+            const newClaim = {
+                id: Math.random().toString(36).substr(2, 9),
+                userId,
+                missionId,
+                proofLink,
+                feedback,
+                rewardTokens: mission.rewardTokens,
+                rewardXP: mission.rewardXP || mission.rewardTokens,
+                createdAt: now.toISOString()
             };
+            await store.create('t2e_claims', newClaim);
 
-            // Keep countdown timers authoritative for any DAILY mission.
-            if (mission.frequency === 'DAILY') {
-                updates.lastDailyTaskAt = fullNow;
-            }
-            if (mission.frequency === 'WEEKLY') {
-                updates.lastWeeklyTaskAt = fullNow;
-                const weeklyTasks = u.weeklyTasks || {};
-                weeklyTasks[mission.id] = { date: fullNow };
-                updates.weeklyTasks = weeklyTasks;
-            }
-            if (mission.frequency === 'ONCE') {
-                const completedTasks = new Set([...(u.completedTasks || []), mission.id]);
-                updates.completedTasks = Array.from(completedTasks);
-            }
+            // Update User Balance (ITEMS) & Legacy Fields for Frontend
+            const fullNow = now.toISOString();
+            await store.updateById('users', userId, (u) => {
+                const updates = {
+                    items: (Number(u.items) || 0) + Number(mission.rewardTokens),
+                    lifetimeEarned: (Number(u.lifetimeEarned) || 0) + Number(mission.rewardTokens)
+                };
 
-            return updates;
+                // Keep countdown timers authoritative for any DAILY mission.
+                if (mission.frequency === 'DAILY') {
+                    updates.lastDailyTaskAt = fullNow;
+                }
+                if (mission.frequency === 'WEEKLY') {
+                    updates.lastWeeklyTaskAt = fullNow;
+                    const weeklyTasks = u.weeklyTasks || {};
+                    weeklyTasks[mission.id] = { date: fullNow };
+                    updates.weeklyTasks = weeklyTasks;
+                }
+                if (mission.frequency === 'ONCE') {
+                    const completedTasks = new Set([...(u.completedTasks || []), mission.id]);
+                    updates.completedTasks = Array.from(completedTasks);
+                }
+
+                return updates;
+            });
+
+            const updatedUser = await store.findOne('users', { id: userId });
+            const activity = {
+                id: Math.random().toString(36).substr(2, 9),
+                userHandle: updatedUser?.verifiedWallet?.slice(0, 8) || userId.slice(0, 8),
+                taskType: mission.type,
+                pointsEarned: Number(mission.rewardTokens),
+                createdAt: new Date().toISOString()
+            };
+            await store.create('t2e_activity', activity);
+
+            return { success: true, user: updatedUser };
         });
 
-        const users = await store.read('users');
-        const user = users.find(u => u.id && typeof u.id === 'string' && userId && typeof userId === 'string' && u.id.toLowerCase() === userId.toLowerCase());
-        const activity = {
-            id: Math.random().toString(36).substr(2, 9),
-            userHandle: user?.verifiedWallet?.slice(0, 8) || userId.slice(0, 8),
+        if (result.error) {
+            return res.status(result.status).json({ error: result.error });
+        }
+
+        const { user } = result;
+        t2eEmitter.emit('activityUpdate', { type: 'MISSION_CLAIM', data: {
             taskType: mission.type,
             pointsEarned: Number(mission.rewardTokens),
-            createdAt: new Date().toISOString()
-        };
-        await store.create('t2e_activity', activity);
-
-        t2eEmitter.emit('activityUpdate', { type: 'MISSION_CLAIM', data: activity });
+        }});
         res.json({ 
             success: true, 
             rewardTokens: mission.rewardTokens,
@@ -326,34 +378,49 @@ export const requestBagPayout = async (req, res) => {
         const config = await store.findOne('t2e_config', { id: 'global_config' });
         const minimum = config?.minimumClaimBalance ?? 500;
 
-        const users = await store.read('users');
-        const user = users.find(u => u.id && typeof u.id === 'string' && userId && typeof userId === 'string' && u.id.toLowerCase() === userId.toLowerCase());
-        if (!user) return res.status(404).json({ error: 'User not found in T2E Registry' });
+        // Same race-condition class as claimMission (see the module
+        // comment on withClaimLock above): reading the balance, checking
+        // it, and zeroing it were three separate steps, so concurrent
+        // requests could each see the same pre-deduction balance and each
+        // create a full-amount payout request before any of them reset
+        // it. This one is more severe than the mission-claim race — it
+        // inflates real payout requests for actual BAG tokens, not just
+        // an internal points balance. Locked per-user for the same
+        // single-instance-only guarantee; see the DB-level fix needed
+        // for multi-instance safety in the audit notes.
+        const result = await withClaimLock(`payout:${userId.toLowerCase()}`, async () => {
+            const user = await store.findOne('users', { id: userId });
+            if (!user) return { error: 'User not found in T2E Registry', status: 404 };
 
-        if ((Number(user.items) || 0) < minimum) {
-            return res.status(400).json({ error: `Minimum payout of ${minimum.toLocaleString()} ITEMS required.` });
+            if ((Number(user.items) || 0) < minimum) {
+                return { error: `Minimum payout of ${minimum.toLocaleString()} ITEMS required.`, status: 400 };
+            }
+
+            const amount = user.items;
+            const payoutWallet = user.preferredWallet || user.verifiedWallet || userId;
+
+            const request = {
+                id: Math.random().toString(36).substr(2, 9),
+                userId,
+                expectedTokens: Number(amount),
+                walletAddress: payoutWallet,
+                status: 'PENDING',
+                createdAt: new Date().toISOString()
+            };
+            await store.create('t2e_payout_requests', request);
+
+            // Deduct from Balance — happens inside the same lock, before
+            // any concurrent request for this user can re-read the balance.
+            await store.updateById('users', userId, () => ({ items: 0 }));
+
+            return { success: true, request, amount, payoutWallet };
+        });
+
+        if (result.error) {
+            return res.status(result.status).json({ error: result.error });
         }
 
-        const amount = user.items;
-        const payoutWallet = user.preferredWallet || user.verifiedWallet || userId;
-
-        const request = {
-            id: Math.random().toString(36).substr(2, 9),
-            userId,
-            expectedTokens: Number(amount),
-            walletAddress: payoutWallet,
-            status: 'PENDING',
-            createdAt: new Date().toISOString()
-        };
-        await store.create('t2e_payout_requests', request);
-
-        // Deduct from Balance
-        await store.update(
-            'users',
-            u => u.id && typeof u.id === 'string' && userId && typeof userId === 'string' && u.id.toLowerCase() === userId.toLowerCase(),
-            () => ({ items: 0 })
-        );
-
+        const { request, amount, payoutWallet } = result;
         t2eEmitter.emit('activityUpdate', {
             type: 'TOKEN_PAYOUT_REQUEST',
             data: { userHandle: payoutWallet.slice(0, 8), amount }

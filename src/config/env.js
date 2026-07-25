@@ -21,5 +21,16 @@ export const config = {
     adminEmail: 'admin@alphabagpro.com', // Primary Test Admin
     databaseUrl: process.env.DATABASE_URL,
     alchemyApiKey: process.env.ALCHEMY_API_KEY,
-    apiKey: process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || null
+    apiKey: process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || null,
+    // Used by verifyUpgrade (authController) — must match the frontend's
+    // TOKEN_GATING_CONFIG values, or the frontend's balance display and
+    // the backend's actual grant decision can disagree.
+    bagTokenAddress: process.env.BAG_TOKEN_ADDRESS || null,
+    minBagRequired: Number(process.env.MIN_BAG_REQUIRED || 0),
+    // Shared secret Backend-UI's server environment must send with every
+    // admin login attempt, in addition to real credentials — see login()
+    // in authController.js. Never set this to a fallback/default value;
+    // if it's unset, admin login is disabled entirely rather than
+    // silently accepting a guessable default.
+    adminPortalKey: process.env.ADMIN_PORTAL_KEY || null,
 };
