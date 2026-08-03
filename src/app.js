@@ -160,59 +160,15 @@ app.get('/api/db-diagnostics', verifyToken, verifyAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/db-diagnostics', async (req, res) => {
-    try {
-        // Try to query prisma admin count directly
-        const admins = await store.read('admins');
-        res.json({
-            status: 'success',
-            database_url_masked: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:([^:@]+)@/, ':****@') : null,
-            adminsCount: admins.length,
-            message: 'Database connection check passed'
-        });
-    } catch (err) {
-        res.status(500).json({
-            status: 'error',
-            database_url_masked: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:([^:@]+)@/, ':****@') : null,
-            message: err.message,
-            stack: err.stack
-        });
-    }
-});
-
-app.get('/api/db-seed-admin', async (req, res) => {
-    try {
-        const { email, password, key } = req.query;
-        if (key !== 'figment-secure-seed-777') {
-            return res.status(403).json({ error: 'Forbidden: Invalid seed key' });
-        }
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password parameters are required' });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const existing = await store.findOne('admins', { email });
-
-        if (existing) {
-            await store.update('admins', a => a.email === email, a => ({
-                password: hashedPassword,
-                updatedAt: new Date().toISOString()
-            }));
-            return res.json({ success: true, message: `Admin ${email} password updated successfully.` });
-        }
-
-        await store.create('admins', {
-            id: 'admin_' + Date.now(),
-            email,
-            password: hashedPassword,
-            createdAt: new Date().toISOString()
-        });
-
-        res.json({ success: true, message: `Admin ${email} created successfully.` });
-    } catch (err) {
-        res.status(500).json({ error: err.message, stack: err.stack });
-    }
-});
+// SECURITY: /api/db-seed-admin has been removed. It accepted email/
+// password/key as URL query parameters (logged in plaintext by proxies,
+// CDNs, and browser history), checked against a secret hardcoded
+// directly in this file ('figment-secure-seed-777' — visible to anyone
+// who ever viewed this source), and would OVERWRITE an existing admin's
+// password if one matched the given email. Anyone with repo access (or
+// anyone who found the URL) could take over the real admin account.
+// Admin seeding must never be reachable over HTTP. Use
+// `node src/scripts/seed-admin.js <email> <password>` locally instead.
 
 app.get('/api/health', (req, res) => {
     res.json({ 

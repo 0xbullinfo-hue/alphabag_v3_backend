@@ -111,7 +111,7 @@ export const boostPair = async (req, res) => {
         const boostExpiry = new Date();
         boostExpiry.setDate(boostExpiry.getDate() + 3);
         
-        await store.update('user_submitted_pairs', p => p.id === id, () => ({
+        await store.updateById('user_submitted_pairs', id, () => ({
             isBoosted: true,
             boostExpiry: boostExpiry.toISOString()
         }));

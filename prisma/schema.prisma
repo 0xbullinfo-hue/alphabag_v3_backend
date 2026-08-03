@@ -205,10 +205,22 @@ model T2EClaim {
   rewardTokens Float      @default(0)
   rewardXP     Float      @default(0)
   createdAt    DateTime   @default(now())
+  // Encodes the uniqueness window for this claim: just `missionId` for a
+  // ONCE mission, `missionId:YYYY-MM-DD` for DAILY, `missionId:YYYY-Www`
+  // for WEEKLY (computed in t2eController.js's computeClaimWindow()). The
+  // unique constraint below is what actually prevents a double-claim
+  // under concurrent requests — Postgres rejects the second insert
+  // outright, rather than the application racing to check-then-write.
+  // DO NOT apply this via `prisma db push` directly against production —
+  // run prisma/manual_migrations/001_t2e_claim_uniqueness.sql first to
+  // de-duplicate any existing race-condition damage, or the push will
+  // fail on the first duplicate row it finds.
+  claimWindow  String     @default("")
 
   user         User       @relation(fields: [userId], references: [id])
   mission      T2EMission @relation(fields: [missionId], references: [id])
 
+  @@unique([userId, claimWindow])
   @@map("t2e_claims")
 }
 

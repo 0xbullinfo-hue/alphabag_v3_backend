@@ -44,6 +44,48 @@ async function withClaimLock(key, fn) {
     }
 }
 
+/**
+ * Computes the claimWindow key that the database unique constraint
+ * (userId, claimWindow) enforces — see prisma/schema.prisma's T2EClaim
+ * model and prisma/manual_migrations/001_t2e_claim_uniqueness.sql. This
+ * MUST stay in sync with that migration's logic, or the constraint will
+ * either fail to block real duplicates or incorrectly block legitimate
+ * repeat claims (e.g. a new day's DAILY claim). That SQL migration must
+ * be run against the database before this will have any effect — until
+ * then, the claimWindow column/constraint don't exist yet and this app
+ * relies on the in-process lock alone (single-instance protection only).
+ */
+function computeClaimWindow(missionId, frequency, now) {
+    if (frequency === 'DAILY') {
+        const dateKey = now.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+        return `${missionId}:${dateKey}`;
+    }
+    if (frequency === 'WEEKLY') {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        return `${missionId}:${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    }
+    return missionId; // ONCE (and any other/unknown frequency) — one claim ever.
+}
+
+function isClaimWindowUniqueViolation(dbError) {
+    if (!dbError || dbError.code !== 'P2002') return false;
+
+    // Prisma typically provides either a target array (field names) or a
+    // target string (constraint name) depending on adapter/version.
+    const target = dbError?.meta?.target;
+    if (Array.isArray(target)) {
+        return target.includes('userId') && target.includes('claimWindow');
+    }
+    if (typeof target === 'string') {
+        return target.includes('t2e_claims_userid_claimwindow_key') ||
+            (target.includes('userId') && target.includes('claimWindow'));
+    }
+    return false;
+}
+
 // ─── TREASURY / CONFIG ────────────────────────────────────────────────────────
 
 export const getTreasuryStatus = async (req, res) => {
@@ -299,17 +341,33 @@ export const claimMission = async (req, res) => {
             }
 
             // Processing Claim
+            const claimWindow = computeClaimWindow(missionId, mission.frequency, now);
             const newClaim = {
                 id: Math.random().toString(36).substr(2, 9),
                 userId,
                 missionId,
+                claimWindow,
                 proofLink,
                 feedback,
                 rewardTokens: mission.rewardTokens,
                 rewardXP: mission.rewardXP || mission.rewardTokens,
                 createdAt: now.toISOString()
             };
-            await store.create('t2e_claims', newClaim);
+            try {
+                await store.create('t2e_claims', newClaim);
+            } catch (dbError) {
+                // P2002 = Prisma unique-constraint violation — the real
+                // guard, catching even a race across multiple server
+                // instances (which the in-process lock above can't).
+                // Requires the SQL migration in
+                // prisma/manual_migrations/001_t2e_claim_uniqueness.sql
+                // to have been run; until then this constraint doesn't
+                // exist and only the lock protects (single-instance only).
+                if (isClaimWindowUniqueViolation(dbError)) {
+                    return { error: 'Mission already claimed.', status: 400 };
+                }
+                throw dbError;
+            }
 
             // Update User Balance (ITEMS) & Legacy Fields for Frontend
             const fullNow = now.toISOString();
@@ -438,7 +496,7 @@ export const updatePreferredWallet = async (req, res) => {
         const { wallet } = req.body;
         if (!wallet) return res.status(400).json({ error: 'Wallet address required' });
 
-        await store.update('users', u => u.id === req.user.id, () => ({ preferredWallet: wallet }));
+        await store.updateById('users', req.user.id, () => ({ preferredWallet: wallet }));
 
         res.json({ success: true, message: 'Preferred wallet updated' });
     } catch (error) {
@@ -548,14 +606,14 @@ export const approveTokenRequest = async (req, res) => {
         if (request.status !== 'PENDING') return res.status(400).json({ error: 'Request already processed' });
 
         if (status === 'REJECTED') {
-            await store.update('t2e_payout_requests', r => r.id === id, () => ({ status: 'REJECTED' }));
+            await store.updateById('t2e_payout_requests', id, () => ({ status: 'REJECTED' }));
             return res.json({ success: true, message: 'Request rejected' });
         }
 
         // Simulating Live Transaction for Beta
         const txHash = '0x' + Math.random().toString(16).substr(2, 64);
 
-        await store.update('t2e_payout_requests', r => r.id === id, () => ({ 
+        await store.updateById('t2e_payout_requests', id, () => ({ 
             status: 'APPROVED',
             txHash
         }));
@@ -577,7 +635,7 @@ export const markPayoutDone = async (req, res) => {
         if (!request) return res.status(404).json({ error: 'Payout request not found' });
         if (request.status === 'SENT') return res.status(400).json({ error: 'Already marked as SENT' });
 
-        await store.update('t2e_payout_requests', r => r.id === id, () => ({
+        await store.updateById('t2e_payout_requests', id, () => ({
             status: 'SENT',
             sentAt: new Date().toISOString(),
             txReference: txReference || null,

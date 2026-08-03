@@ -159,7 +159,7 @@ export const claimPoints = async (req, res) => {
             return res.status(400).json({ error: 'No active airdrop campaign running' });
         }
 
-        let updatedUser = await store.update('users', u => u.id === req.user.id, (user) => {
+        let updatedUser = await store.updateById('users', req.user.id, (user) => {
             const history = user.claimsHistory || [];
             const campHistory = history.filter(h => h.campaignId === activeCampaign.id);
             const lastClaimObj = campHistory.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
@@ -262,7 +262,7 @@ export const submitWallet = async (req, res) => {
             }
         }
 
-        const updatedUser = await store.update('users', u => u.id === req.user.id, (user) => {
+        const updatedUser = await store.updateById('users', req.user.id, (user) => {
             return { 
                 airdropSubmitted: true,
                 submittedWallet: bscWallet,
@@ -482,7 +482,7 @@ export const approveFounder = async (req, res) => {
         const { userId, status } = req.body; // status: 'APPROVED' or 'REJECTED'
         if (!userId || !status) return res.status(400).json({ error: 'User ID and Status required' });
 
-        const updatedUser = await store.update('users', u => u.id === userId, (user) => {
+        const updatedUser = await store.updateById('users', userId, (user) => {
             return {
                 isFounderAirdrop: status === 'APPROVED',
                 founderStatus: status,
@@ -526,7 +526,7 @@ export const completeTask = async (req, res) => {
             return res.status(400).json({ error: 'A valid proof link is required for this mission' });
         }
 
-        const user = await store.update('users', u => u.id === req.user.id, (u) => {
+        const user = await store.updateById('users', req.user.id, (u) => {
             if (u.isBanned) throw new Error('Your account has been permanently suspended from the T2E program due to protocol violations.');
             
             const completed = u.completedTasks || [];
@@ -605,7 +605,7 @@ export const processReferralSnapshot = async (req, res) => {
         let awardedCount = 0;
 
         for (const user of top100) {
-            await store.update('users', u => u.id === user.id, r => ({
+            await store.updateById('users', user.id, r => ({
                 items: (r.items || 0) + bonusTokens,
                 hasTopReferrerBonus: true
             }));
@@ -668,7 +668,7 @@ export const grantBonusXP = async (req, res) => {
         }
 
         const amount = parseInt(bonusTokens);
-        const updatedUser = await store.update('users', u => u.id === userId, (user) => {
+        const updatedUser = await store.updateById('users', userId, (user) => {
             const newStrikes = amount < 0 ? (user.strikes || 0) + 1 : (user.strikes || 0);
             return {
                 items: (user.items || 0) + amount,
@@ -856,7 +856,7 @@ export const convertItemsToBag = async (req, res) => {
         const convertedBag = itemsBalance * itemsToBagRate;
         const newBagTokens = (user.bagTokens || 0) + convertedBag;
 
-        const updatedUser = await store.update('users', u => u.id === req.user.id, (u) => {
+        const updatedUser = await store.updateById('users', req.user.id, (u) => {
             return {
                 items: 0,
                 bagTokens: newBagTokens
@@ -885,7 +885,7 @@ export const issueStrike = async (req, res) => {
 
         const adminId = req.user?.id || 'admin';
 
-        const updatedUser = await store.update('users', u => u.id === userId, (user) => {
+        const updatedUser = await store.updateById('users', userId, (user) => {
             const newStrikes = (user.strikes || 0) + 1;
             return {
                 strikes: newStrikes,
@@ -923,7 +923,7 @@ export const unbanUser = async (req, res) => {
         const { userId } = req.body;
         if (!userId) return res.status(400).json({ error: 'User ID is required' });
 
-        const updatedUser = await store.update('users', u => u.id === userId, (user) => {
+        const updatedUser = await store.updateById('users', userId, (user) => {
             return {
                 isBanned: false,
                 strikes: 0 // Reset strikes to allow a fresh start

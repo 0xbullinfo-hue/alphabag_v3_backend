@@ -175,7 +175,7 @@ export const siweAuth = async (req, res) => {
                     const referrerCount = referrer.referralCount || 0;
                     
                     if (referrerCount < 1000) {
-                        await store.update('users', u => u.id === referrer.id, r => ({
+                        await store.updateById('users', referrer.id, r => ({
                             items: (r.items || 0) + 100,
                             referralCount: referrerCount + 1
                         }));
@@ -274,9 +274,9 @@ export const verifyUpgrade = async (req, res) => {
             });
         }
 
-        const updatedUser = await store.update(
+        const updatedUser = await store.updateById(
             'users',
-            u => u.id === userId,
+            userId,
             u => ({ tier: 'ULTIMATE', verifiedWallet: normalizedAddress })
         );
 
@@ -341,8 +341,7 @@ export const updateProfile = async (req, res) => {
     const userId = req.user.id;
 
     try {
-        const updatedUser = await store.update('users', 
-            u => u.id && typeof u.id === 'string' && userId && typeof userId === 'string' && u.id.toLowerCase() === userId.toLowerCase(), 
+        const updatedUser = await store.updateById('users', userId,
             u => ({
                 bio: bio !== undefined ? bio : u.bio,
                 website: website !== undefined ? website : u.website,

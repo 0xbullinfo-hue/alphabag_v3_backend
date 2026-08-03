@@ -97,9 +97,15 @@ Object.entries(spec.paths).forEach(([path, pathItem]) => {
             return;
         }
 
-        // Check for response schema
-        const schema = operation.responses[Object.keys(operation.responses)[0]]?.content?.['application/json']?.schema;
-        if (!schema) {
+        // Check for response schema on any success media type (JSON, CSV, etc.)
+        const successResponseCode = operation.responses['200']
+            ? '200'
+            : Object.keys(operation.responses).find(code => code.startsWith('2'));
+        const successResponseObj = successResponseCode ? operation.responses[successResponseCode] : null;
+        const contentByType = successResponseObj?.content || {};
+        const hasAnySchema = Object.values(contentByType).some((media) => media && media.schema);
+
+        if (!hasAnySchema) {
             warn(`${method.toUpperCase()} ${path}: No response schema defined`);
             undocumentedResponses++;
         }
