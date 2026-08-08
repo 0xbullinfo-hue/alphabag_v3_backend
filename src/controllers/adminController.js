@@ -178,6 +178,13 @@ export const getSeoAeoWorkspace = async (req, res) => {
     res.json(workspace && Object.keys(workspace).length > 0 ? workspace : {});
 };
 
+export const getSeoAeoWorkspaceAudit = async (req, res) => {
+    const auditEntries = await store.read('seo_aeo_workspace_audit');
+    const safeEntries = Array.isArray(auditEntries) ? auditEntries : [];
+    safeEntries.sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime());
+    res.json(safeEntries.slice(0, 25));
+};
+
 export const updateSeoAeoWorkspace = async (req, res) => {
     const incoming = req.body;
 
@@ -186,6 +193,8 @@ export const updateSeoAeoWorkspace = async (req, res) => {
     }
 
     const current = await store.read('seo_aeo_workspace');
+    const trackedFields = ['objectives', 'entityCanon', 'priorityPrompts', 'localAuthorityPlan', 'performanceNotes', 'tasks'];
+    const changedSections = trackedFields.filter((field) => JSON.stringify(current?.[field]) !== JSON.stringify(incoming?.[field]));
     const updated = {
         ...(current && typeof current === 'object' ? current : {}),
         ...incoming,
@@ -194,6 +203,13 @@ export const updateSeoAeoWorkspace = async (req, res) => {
     };
 
     await store.write('seo_aeo_workspace', updated);
+    await store.create('seo_aeo_workspace_audit', {
+        adminId: req.user?.id || null,
+        adminEmail: req.user?.email || 'admin',
+        action: 'SEO_AEO_WORKSPACE_SAVE',
+        changedSections,
+        createdAt: new Date().toISOString()
+    });
     res.json({ success: true, workspace: updated });
 };
 
