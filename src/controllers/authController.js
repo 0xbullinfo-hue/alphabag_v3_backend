@@ -37,6 +37,7 @@ export const register = async (req, res) => {
 export const login = async (req, res) => {
     const { email, password, portal, adminPortalKey } = req.body; // portal: 'main' | 'admin'
     const isAdminPortal = portal === 'admin';
+    const isPreviewMode = (process.env.NODE_ENV || 'development') !== 'production';
 
     if (!isAdminPortal) {
         // Regular users authenticate via wallet connect (SIWE) only —
@@ -69,6 +70,24 @@ export const login = async (req, res) => {
 
     const targetCollection = 'admins';
     const user = await store.findOne(targetCollection, { email });
+
+    if (!user && isAdminPortal && isPreviewMode && config.localAdminPreviewEmail && config.localAdminPreviewPassword) {
+        const emailMatches = email === config.localAdminPreviewEmail;
+        const passwordMatches = password === config.localAdminPreviewPassword;
+
+        if (emailMatches && passwordMatches) {
+            const previewUser = {
+                id: 'local_admin_preview',
+                email: config.localAdminPreviewEmail,
+                isAdmin: true,
+                tier: 'ULTIMATE',
+                previewMode: true
+            };
+
+            const token = jwt.sign({ id: previewUser.id, email: previewUser.email, isAdmin: true }, config.jwtSecret, { expiresIn: '24h' });
+            return res.json({ token, user: previewUser });
+        }
+    }
 
     if (!user) {
         return res.status(400).json({ error: 'Invalid credentials' });

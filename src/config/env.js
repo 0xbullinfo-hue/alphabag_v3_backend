@@ -33,4 +33,6 @@ export const config = {
     // if it's unset, admin login is disabled entirely rather than
     // silently accepting a guessable default.
     adminPortalKey: process.env.ADMIN_PORTAL_KEY || null,
+    localAdminPreviewEmail: process.env.LOCAL_ADMIN_PREVIEW_EMAIL || null,
+    localAdminPreviewPassword: process.env.LOCAL_ADMIN_PREVIEW_PASSWORD || null,
 };
