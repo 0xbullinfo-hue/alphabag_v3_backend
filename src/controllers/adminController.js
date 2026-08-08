@@ -173,6 +173,30 @@ export const updateAdminSettings = async (req, res) => {
     res.json({ success: true });
 };
 
+export const getSeoAeoWorkspace = async (req, res) => {
+    const workspace = await store.read('seo_aeo_workspace');
+    res.json(workspace && Object.keys(workspace).length > 0 ? workspace : {});
+};
+
+export const updateSeoAeoWorkspace = async (req, res) => {
+    const incoming = req.body;
+
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+        return res.status(400).json({ error: 'Workspace payload must be an object.' });
+    }
+
+    const current = await store.read('seo_aeo_workspace');
+    const updated = {
+        ...(current && typeof current === 'object' ? current : {}),
+        ...incoming,
+        updatedAt: new Date().toISOString(),
+        updatedBy: req.user?.email || req.user?.id || 'admin'
+    };
+
+    await store.write('seo_aeo_workspace', updated);
+    res.json({ success: true, workspace: updated });
+};
+
 // Test Alert
 import { sendTelegramMessage } from '../services/telegramService.js';
 export const sendTestAlert = async (req, res) => {

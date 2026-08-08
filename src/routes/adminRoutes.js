@@ -6,7 +6,8 @@ import {
     createNews, deleteNews,
     createSignal, updateSignal, deleteSignal,
     getWhaleFollows, addWhaleFollow, deleteWhaleFollow,
-    getAdminSettings, updateAdminSettings, sendTestAlert
+    getAdminSettings, updateAdminSettings, sendTestAlert,
+    getSeoAeoWorkspace, updateSeoAeoWorkspace
 } from '../controllers/adminController.js';
 
 const router = express.Router();
@@ -34,6 +35,8 @@ router.delete('/whales/:id', deleteWhaleFollow);
 
 router.get('/settings', getAdminSettings);
 router.post('/settings', updateAdminSettings);
+router.get('/seo-aeo-workspace', getSeoAeoWorkspace);
+router.post('/seo-aeo-workspace', updateSeoAeoWorkspace);
 router.post('/test-alert', sendTestAlert);
 router.post('/reboot', (req, res) => res.json({ success: true, message: 'Reboot simulated safely.' }));
 
