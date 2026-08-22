@@ -21,6 +21,16 @@ export const config = {
     adminEmail: 'admin@alphabagpro.com', // Primary Test Admin
     databaseUrl: process.env.DATABASE_URL,
     alchemyApiKey: process.env.ALCHEMY_API_KEY,
+    covalentApiKey: process.env.COVALENT_API_KEY || null,
+    cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || null,
+    rpcUrls: {
+        ethereum: process.env.RPC_URL_ETHEREUM || null,
+        bsc: process.env.RPC_URL_BSC || null,
+        polygon: process.env.RPC_URL_POLYGON || null,
+        arbitrum: process.env.RPC_URL_ARBITRUM || null,
+        base: process.env.RPC_URL_BASE || null,
+        avalanche: process.env.RPC_URL_AVALANCHE || null,
+    },
     apiKey: process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || null,
     // Used by verifyUpgrade (authController) — must match the frontend's
     // TOKEN_GATING_CONFIG values, or the frontend's balance display and

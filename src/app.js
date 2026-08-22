@@ -35,7 +35,8 @@ import projectRoutes from './routes/projectRoutes.js';
 import livePairRoutes from './routes/livePairRoutes.js';
 import t2eRoutes from './routes/t2eRoutes.js';
 import proxyRoutes from './routes/proxyRoutes.js';
-import { marketRouter, whaleRouter, aiRouter, portfolioRouter, cexRouter } from './routes/serviceRoutes.js';
+import { marketRouter, whaleRouter, aiRouter, portfolioRouter, cexRouter, streamRouter } from './routes/serviceRoutes.js';
+import { configRouter, rpcRouter, securityRouter } from './routes/integrationRoutes.js';
 import { schemaValidationMiddleware } from './utils/schemaValidator.js';
 
 const app = express();
@@ -85,10 +86,10 @@ app.use(cors({
         callback(new Error(`CORS blocked: ${origin}`));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Client-Timestamp'],
     credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '64kb' }));
 
 // OpenAPI Schema Validation — validates responses against contract (development mode)
 // Set SCHEMA_VALIDATION_STRICT=true to enforce strict validation
@@ -134,6 +135,10 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/live-pairs', livePairRoutes);
 app.use('/api/v1/t2e', t2eRoutes);
 app.use('/api/proxy', proxyRoutes);
+app.use('/api/config', configRouter);
+app.use('/api/security', securityRouter);
+app.use('/api/rpc', rpcRouter);
+app.use('/api/stream', streamRouter);
 
 // Service Routes (Legacy Migration)
 app.use('/api/portfolio', portfolioRouter); // Moved up to ensure precedence

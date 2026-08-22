@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getOrSetCache } from '../utils/cache.js';
 
 export const proxyBlockExplorer = async (req, res) => {
     try {
@@ -24,9 +25,16 @@ export const proxyBlockExplorer = async (req, res) => {
         }
 
         const url = `${baseUrl}?${queryParams}&apikey=${apiKey}`;
-        
-        const response = await axios.get(url);
-        res.json(response.data);
+        const cacheKey = `explorer_proxy_${explorer}_${queryParams}`;
+
+        // 30s cache for explorer queries
+        const result = await getOrSetCache(cacheKey, 30, async () => {
+            const response = await axios.get(url);
+            return response.data;
+        });
+
+        res.set('X-Cache', result.fromCache ? 'HIT' : 'MISS');
+        res.json(result.data);
     } catch (error) {
         console.error('[ProxyController] Proxy error:', error.message);
         res.status(500).json({ error: 'Failed to fetch from external API' });

@@ -206,6 +206,97 @@ components:
           type: string
           example: "Optional error details"
 
+    FeatureFlags:
+      type: object
+      required:
+        - disabledPages
+        - enableTokenGating
+        - isTeaserMode
+        - maxPortfolios
+        - maxWhales
+        - enableAlphaAi
+        - enableSecurityScanner
+        - updatedAt
+      properties:
+        disabledPages:
+          type: array
+          items:
+            type: string
+        enableTokenGating:
+          type: boolean
+        isTeaserMode:
+          type: boolean
+        maxPortfolios:
+          type: integer
+        maxWhales:
+          type: integer
+        enableAlphaAi:
+          type: boolean
+        enableSecurityScanner:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+
+    TokenBalance:
+      type: object
+      required:
+        - contractAddress
+        - symbol
+        - name
+        - chain
+        - balance
+        - priceUSD
+        - valueUSD
+      properties:
+        contractAddress:
+          type: string
+        symbol:
+          type: string
+        name:
+          type: string
+        chain:
+          type: string
+          enum: [ethereum, bsc, polygon, arbitrum, base, avalanche, solana]
+        balance:
+          type: string
+        priceUSD:
+          type: number
+        valueUSD:
+          type: number
+        change24h:
+          type: number
+        logo:
+          type: string
+
+    PortfolioBalancesResponse:
+      type: object
+      required:
+        - tokens
+        - updatedAt
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenBalance'
+        updatedAt:
+          type: string
+          format: date-time
+
+    SecurityApprovalsResponse:
+      type: object
+      required:
+        - items
+        - updatedAt
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+        updatedAt:
+          type: string
+          format: date-time
+
     # ─── AIRDROP SCHEMAS ──────────────────────────────────────────────────────────
 
     AirdropSettings:
@@ -865,6 +956,85 @@ security:
   - BearerAuth: []
 
 paths:
+  /config/features:
+    get:
+      tags:
+        - Configuration
+      summary: Get backend-managed feature flags
+      security: []
+      responses:
+        '200':
+          description: Feature flags retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureFlags'
+
+  /portfolio/balances:
+    get:
+      tags:
+        - Portfolio
+      summary: Get normalized EVM token balances
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: chains
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token balances retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioBalancesResponse'
+        '400':
+          description: Invalid address or query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /security/approvals:
+    get:
+      tags:
+        - Security
+      summary: Get ERC-20 token approvals through the backend provider proxy
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: chain
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [ethereum, bsc, polygon, arbitrum, base, avalanche]
+      responses:
+        '200':
+          description: Token approvals retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityApprovalsResponse'
+        '400':
+          description: Invalid address or chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   # ═══════════════════════════════════════════════════════════════════════════════
   # AIRDROP ROUTES (PUBLIC + USER + ADMIN)
   # ═══════════════════════════════════════════════════════════════════════════════

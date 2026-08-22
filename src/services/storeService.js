@@ -23,7 +23,8 @@ const collectionToModelMap = {
     'tasks': 'task',
     'user_submitted_pairs': 'userSubmittedPair',
     'projects': 'project',
-    'admins': 'admin'
+    'admins': 'admin',
+    'cex_connections': 'cexConnection'
 };
 
 const modelFieldsMap = {};
@@ -139,9 +140,10 @@ class StoreService {
                                 if (formattedRest.lastDailyTaskAt) formattedRest.lastDailyTaskAt = new Date(formattedRest.lastDailyTaskAt);
                                 if (formattedRest.lastWeeklyTaskAt) formattedRest.lastWeeklyTaskAt = new Date(formattedRest.lastWeeklyTaskAt);
                                 if (formattedRest.createdAt) formattedRest.createdAt = new Date(formattedRest.createdAt);
-                            } else if (modelName === 'news' || modelName === 'signal' || modelName === 'project' || modelName === 'airdropCampaign' || modelName === 't2EMission' || modelName === 't2EClaim' || modelName === 't2EActivity' || modelName === 't2EPayoutRequest' || modelName === 'task' || modelName === 'userSubmittedPair' || modelName === 'admin') {
+                            } else if (modelName === 'news' || modelName === 'signal' || modelName === 'project' || modelName === 'airdropCampaign' || modelName === 't2EMission' || modelName === 't2EClaim' || modelName === 't2EActivity' || modelName === 't2EPayoutRequest' || modelName === 'task' || modelName === 'userSubmittedPair' || modelName === 'admin' || modelName === 'cexConnection') {
                                 if (formattedRest.createdAt) formattedRest.createdAt = new Date(formattedRest.createdAt);
                                 if (formattedRest.updatedAt) formattedRest.updatedAt = new Date(formattedRest.updatedAt);
+                                if (formattedRest.lastSyncedAt) formattedRest.lastSyncedAt = new Date(formattedRest.lastSyncedAt);
                                 if (formattedRest.startDate) formattedRest.startDate = new Date(formattedRest.startDate);
                                 if (formattedRest.sentAt) formattedRest.sentAt = new Date(formattedRest.sentAt);
                                 if (formattedRest.boostExpiry) formattedRest.boostExpiry = new Date(formattedRest.boostExpiry);
@@ -213,8 +215,9 @@ class StoreService {
                         if (data.lastActive) data.lastActive = new Date(data.lastActive);
                         if (data.lastDailyTaskAt) data.lastDailyTaskAt = new Date(data.lastDailyTaskAt);
                         if (data.lastWeeklyTaskAt) data.lastWeeklyTaskAt = new Date(data.lastWeeklyTaskAt);
-                    } else if (modelName === 'news' || modelName === 'signal' || modelName === 'project' || modelName === 'airdropCampaign' || modelName === 't2EMission' || modelName === 't2EClaim' || modelName === 't2EActivity' || modelName === 't2EPayoutRequest' || modelName === 'task' || modelName === 'userSubmittedPair' || modelName === 'admin') {
+                    } else if (modelName === 'news' || modelName === 'signal' || modelName === 'project' || modelName === 'airdropCampaign' || modelName === 't2EMission' || modelName === 't2EClaim' || modelName === 't2EActivity' || modelName === 't2EPayoutRequest' || modelName === 'task' || modelName === 'userSubmittedPair' || modelName === 'admin' || modelName === 'cexConnection') {
                         if (data.updatedAt) data.updatedAt = new Date(data.updatedAt);
+                        if (data.lastSyncedAt) data.lastSyncedAt = new Date(data.lastSyncedAt);
                         if (data.startDate) data.startDate = new Date(data.startDate);
                         if (data.sentAt) data.sentAt = new Date(data.sentAt);
                         if (data.boostExpiry) data.boostExpiry = new Date(data.boostExpiry);
@@ -264,9 +267,10 @@ class StoreService {
                         if (formattedFields.lastActive) formattedFields.lastActive = new Date(formattedFields.lastActive);
                         if (formattedFields.lastDailyTaskAt) formattedFields.lastDailyTaskAt = new Date(formattedFields.lastDailyTaskAt);
                         if (formattedFields.lastWeeklyTaskAt) formattedFields.lastWeeklyTaskAt = new Date(formattedFields.lastWeeklyTaskAt);
-                    } else if (modelName === 'news' || modelName === 'signal' || modelName === 'project' || modelName === 'airdropCampaign' || modelName === 't2EMission' || modelName === 't2EClaim' || modelName === 't2EActivity' || modelName === 't2EPayoutRequest' || modelName === 'task' || modelName === 'userSubmittedPair' || modelName === 'admin') {
+                    } else if (modelName === 'news' || modelName === 'signal' || modelName === 'project' || modelName === 'airdropCampaign' || modelName === 't2EMission' || modelName === 't2EClaim' || modelName === 't2EActivity' || modelName === 't2EPayoutRequest' || modelName === 'task' || modelName === 'userSubmittedPair' || modelName === 'admin' || modelName === 'cexConnection') {
                         if (formattedFields.createdAt) formattedFields.createdAt = new Date(formattedFields.createdAt);
                         if (formattedFields.updatedAt) formattedFields.updatedAt = new Date(formattedFields.updatedAt);
+                        if (formattedFields.lastSyncedAt) formattedFields.lastSyncedAt = new Date(formattedFields.lastSyncedAt);
                         if (formattedFields.startDate) formattedFields.startDate = new Date(formattedFields.startDate);
                         if (formattedFields.sentAt) formattedFields.sentAt = new Date(formattedFields.sentAt);
                         if (formattedFields.boostExpiry) formattedFields.boostExpiry = new Date(formattedFields.boostExpiry);

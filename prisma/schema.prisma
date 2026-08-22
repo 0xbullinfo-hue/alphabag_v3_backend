@@ -76,6 +76,7 @@ model User {
   t2eClaims           T2EClaim[]
   payoutRequests      T2EPayoutRequest[]
   submittedPairs      UserSubmittedPair[]
+  cexConnections      CexConnection[]
 
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -293,6 +294,24 @@ model UserSubmittedPair {
   user            User      @relation(fields: [userId], references: [id])
 
   @@map("user_submitted_pairs")
+}
+
+model CexConnection {
+  id                  String   @id
+  userId              String
+  exchangeId          String
+  encryptedApiKey     String
+  encryptedSecret     String
+  encryptedPassphrase String?
+  status              String   @default("CONNECTED")
+  lastSyncedAt        DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, exchangeId])
+  @@map("cex_connections")
 }
 
 // ─── SYSTEM CONFIG ───────────────────────────────────────────────────────────
