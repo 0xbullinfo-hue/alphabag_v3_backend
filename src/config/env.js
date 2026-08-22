@@ -1,48 +1,63 @@
-
 import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+export function validateEnv() {
+  const required = ['DATABASE_URL', 'JWT_SECRET'];
+  const missing = required.filter((key) => !process.env[key]);
 
-// Load .env from root (supports both standalone backend root and monorepo root)
-const backendRoot = path.join(__dirname, '../../');
-const monorepoRoot = path.join(__dirname, '../../../');
+  if (missing.length > 0) {
+    console.error(`[ENV] Missing required variables: ${missing.join(', ')}`);
+    if (process.env.NODE_ENV === 'production' || process.env.VITE_ENVIRONMENT === 'production') {
+      process.exit(1);
+    }
+  }
 
-dotenv.config({ path: path.join(backendRoot, '.env') });
-dotenv.config({ path: path.join(backendRoot, '.env.local') });
-dotenv.config({ path: path.join(monorepoRoot, '.env') });
-dotenv.config({ path: path.join(monorepoRoot, '.env.local') });
+  // Production security checks
+  if (process.env.NODE_ENV === 'production' || process.env.VITE_ENVIRONMENT === 'production') {
+    const weakSecrets = [
+      'your_jwt_secret_key_here',
+      'alphabag-secret-key-change-in-prod-urgent',
+      'change-me-in-production',
+      'default',
+      'secret',
+    ];
+
+    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32 || weakSecrets.includes(process.env.JWT_SECRET)) {
+      console.error('[ENV] FATAL: JWT_SECRET must be at least 32 characters and not a default value');
+      process.exit(1);
+    }
+
+    if (!process.env.CEX_ENCRYPTION_KEY || process.env.CEX_ENCRYPTION_KEY.length < 16) {
+      console.error('[ENV] FATAL: CEX_ENCRYPTION_KEY must be at least 16 characters');
+      process.exit(1);
+    }
+
+    if (process.env.FRONTEND_URL === '*') {
+      console.error('[ENV] FATAL: FRONTEND_URL cannot be wildcard (*) in production');
+      process.exit(1);
+    }
+
+    if (!process.env.COVALENT_API_KEY) {
+      console.warn('[ENV] COVALENT_API_KEY not set — Security Scanner will use fallback mock data');
+    }
+
+    if (!process.env.ALCHEMY_API_KEY) {
+      console.warn('[ENV] ALCHEMY_API_KEY not set — RPC proxy may fail');
+    }
+  }
+}
 
 export const config = {
-    port: process.env.PORT && isNaN(Number(process.env.PORT)) ? process.env.PORT : (parseInt(process.env.PORT) || 3003),
-    jwtSecret: process.env.JWT_SECRET || 'alphabag-secret-key-change-in-prod-urgent',
-    adminEmail: 'admin@alphabagpro.com', // Primary Test Admin
-    databaseUrl: process.env.DATABASE_URL,
-    alchemyApiKey: process.env.ALCHEMY_API_KEY,
-    covalentApiKey: process.env.COVALENT_API_KEY || null,
-    cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || null,
-    rpcUrls: {
-        ethereum: process.env.RPC_URL_ETHEREUM || null,
-        bsc: process.env.RPC_URL_BSC || null,
-        polygon: process.env.RPC_URL_POLYGON || null,
-        arbitrum: process.env.RPC_URL_ARBITRUM || null,
-        base: process.env.RPC_URL_BASE || null,
-        avalanche: process.env.RPC_URL_AVALANCHE || null,
-    },
-    apiKey: process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || null,
-    // Used by verifyUpgrade (authController) — must match the frontend's
-    // TOKEN_GATING_CONFIG values, or the frontend's balance display and
-    // the backend's actual grant decision can disagree.
-    bagTokenAddress: process.env.BAG_TOKEN_ADDRESS || null,
-    minBagRequired: Number(process.env.MIN_BAG_REQUIRED || 0),
-    // Shared secret Backend-UI's server environment must send with every
-    // admin login attempt, in addition to real credentials — see login()
-    // in authController.js. Never set this to a fallback/default value;
-    // if it's unset, admin login is disabled entirely rather than
-    // silently accepting a guessable default.
-    adminPortalKey: process.env.ADMIN_PORTAL_KEY || null,
-    localAdminPreviewEmail: process.env.LOCAL_ADMIN_PREVIEW_EMAIL || null,
-    localAdminPreviewPassword: process.env.LOCAL_ADMIN_PREVIEW_PASSWORD || null,
+  port: parseInt(process.env.PORT || '3003', 10),
+  nodeEnv: process.env.NODE_ENV || 'development',
+  jwtSecret: process.env.JWT_SECRET || 'alphabag-dev-secret-key-32chars-min!!',
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3005',
+  alchemyApiKey: process.env.ALCHEMY_API_KEY || '',
+  covalentApiKey: process.env.COVALENT_API_KEY || '',
+  coingeckoApiKey: process.env.COINGECKO_API_KEY || '',
+  moralisApiKey: process.env.MORALIS_API_KEY || '',
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || 'alphabag-cex-encryption-key-32ch',
 };
+
+export default config;

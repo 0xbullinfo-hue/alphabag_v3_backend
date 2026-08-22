@@ -35,7 +35,7 @@ import projectRoutes from './routes/projectRoutes.js';
 import livePairRoutes from './routes/livePairRoutes.js';
 import t2eRoutes from './routes/t2eRoutes.js';
 import proxyRoutes from './routes/proxyRoutes.js';
-import { marketRouter, whaleRouter, aiRouter, portfolioRouter, cexRouter, streamRouter } from './routes/serviceRoutes.js';
+import { marketRouter, dexRouter, whaleRouter, aiRouter, portfolioRouter, cexRouter, streamRouter } from './routes/serviceRoutes.js';
 import { configRouter, rpcRouter, securityRouter } from './routes/integrationRoutes.js';
 import { schemaValidationMiddleware } from './utils/schemaValidator.js';
 
@@ -144,6 +144,7 @@ app.use('/api/stream', streamRouter);
 app.use('/api/portfolio', portfolioRouter); // Moved up to ensure precedence
 app.use('/api/whale', whaleRouter); 
 app.use('/api/ai', aiRouter);
+app.use('/api/neural-core', aiRouter);
 app.use('/api/cex', cexRouter);
 app.use('/api', marketRouter);
 // NOTE: publicRoutes already mounted above at /api — do NOT mount again here
