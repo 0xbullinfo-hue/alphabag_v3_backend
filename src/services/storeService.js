@@ -177,6 +177,30 @@ class StoreService {
         });
     }
 
+    
+    async findMany(collection, query = {}) {
+        const modelName = collectionToModelMap[collection];
+        if (modelName) {
+            try {
+                const where = {};
+                for (const key of Object.keys(query)) {
+                    if (query[key] !== undefined) {
+                        where[key] = query[key];
+                    }
+                }
+                return await prisma[modelName].findMany({ where });
+            } catch (error) {
+                console.error(`StoreService: Failed findMany on ${collection}:`, error);
+                return [];
+            }
+        } else {
+            const items = await this.read(collection);
+            if (!Array.isArray(items)) return [];
+            if (Object.keys(query).length === 0) return items;
+            return items.filter(item => Object.keys(query).every(key => item[key] === query[key]));
+        }
+    }
+
     async findOne(collection, query) {
         const modelName = collectionToModelMap[collection];
         if (modelName) {
@@ -241,6 +265,29 @@ class StoreService {
                 items.push(item);
                 await this.write(collection, items);
                 return item;
+            }
+        });
+    }
+
+    
+    async delete(collection, id) {
+        return this.lock(async () => {
+            const modelName = collectionToModelMap[collection];
+            if (modelName) {
+                try {
+                    return await prisma[modelName].delete({ where: { id } });
+                } catch (error) {
+                    console.error(`StoreService: Failed delete in ${collection}:`, error);
+                    return null;
+                }
+            } else {
+                const items = await this.read(collection);
+                if (!Array.isArray(items)) return null;
+                const index = items.findIndex(item => item.id === id);
+                if (index === -1) return null;
+                const removed = items.splice(index, 1)[0];
+                await this.write(collection, items);
+                return removed;
             }
         });
     }

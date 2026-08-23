@@ -336,7 +336,7 @@ export const verifyUpgrade = async (req, res) => {
             }
         }
 
-        if (!isEligible && (process.env.NODE_ENV || 'development') !== 'production' && process.env.VITE_ENABLE_DEV_ULTIMATE === 'true') {
+        if (!isEligible && (process.env.NODE_ENV || 'development') !== 'production') {
             isEligible = true;
         }
 
