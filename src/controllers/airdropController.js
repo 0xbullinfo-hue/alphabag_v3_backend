@@ -256,84 +256,91 @@ export const claimPoints = async (req, res) => {
     }
 };
 
-export const submitWallet = async (req, res) => {
-    try {
-        const { 
-            bscWallet, xLink, reviewComment, isFounderRequest,
-            projectName, projectTicker, projectManifesto, projectSocial, projectWebsite,
-            projectContract, projectGoals, founderSocial, projectLogo, projectBanner
-        } = req.body;
-        
-        if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized' });
-        if (!bscWallet) return res.status(400).json({ error: 'BSC Wallet is required' });
-
-        if (!isValidHttpUrl(xLink) || !isValidHttpUrl(projectSocial) || !isValidHttpUrl(projectWebsite) || !isValidHttpUrl(projectLogo) || !isValidHttpUrl(projectBanner)) {
-            return res.status(400).json({ error: 'Invalid URL format for project links or images (must start with http:// or https://)' });
+export const submitWallet = [
+    ...validateSubmitWallet,
+    async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ error: 'Invalid input', details: errors.array() });
         }
+        try {
+            const { 
+                bscWallet, xLink, reviewComment, isFounderRequest,
+                projectName, projectTicker, projectManifesto, projectSocial, projectWebsite,
+                projectContract, projectGoals, founderSocial, projectLogo, projectBanner
+            } = req.body;
+            
+            if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized' });
+            if (!bscWallet) return res.status(400).json({ error: 'BSC Wallet is required' });
 
-        if (isFounderRequest) {
-            if (!projectName || !projectTicker || !projectManifesto || !projectContract || !projectGoals || !founderSocial) {
-                return res.status(400).json({ error: 'Founder Applications require Project Name, Ticker, Vision, Contract, Goals, and Social details for filtering.' });
+            if (!isValidHttpUrl(xLink) || !isValidHttpUrl(projectSocial) || !isValidHttpUrl(projectWebsite) || !isValidHttpUrl(projectLogo) || !isValidHttpUrl(projectBanner)) {
+                return res.status(400).json({ error: 'Invalid URL format for project links or images (must start with http:// or https://)' });
             }
-        }
 
-        const users = await store.read('users');
-        const submittedCount = users.filter(u => u.airdropSubmitted).length;
-
-        if (submittedCount >= 1000) {
-            return res.status(400).json({ error: 'Airdrop Phase 1 is full. All 1000 spots claimed.' });
-        }
-
-        const existing = await store.findOne('users', { id: req.user.id });
-        if (existing && existing.airdropSubmitted) {
-            return res.status(400).json({ error: 'Airdrop already submitted for this account.' });
-        }
-
-        // Potential Founder spot check
-        let founderApproved = false;
-        if (isFounderRequest) {
-            const founderCount = users.filter(u => u.isFounderAirdrop).length;
-            if (founderCount < 100) {
-                founderApproved = true;
+            if (isFounderRequest) {
+                if (!projectName || !projectTicker || !projectManifesto || !projectContract || !projectGoals || !founderSocial) {
+                    return res.status(400).json({ error: 'Founder Applications require Project Name, Ticker, Vision, Contract, Goals, and Social details for filtering.' });
+                }
             }
+
+            const users = await store.read('users');
+            const submittedCount = users.filter(u => u.airdropSubmitted).length;
+
+            if (submittedCount >= 1000) {
+                return res.status(400).json({ error: 'Airdrop Phase 1 is full. All 1000 spots claimed.' });
+            }
+
+            const existing = await store.findOne('users', { id: req.user.id });
+            if (existing && existing.airdropSubmitted) {
+                return res.status(400).json({ error: 'Airdrop already submitted for this account.' });
+            }
+
+            // Potential Founder spot check
+            let founderApproved = false;
+            if (isFounderRequest) {
+                const founderCount = users.filter(u => u.isFounderAirdrop).length;
+                if (founderCount < 100) {
+                    founderApproved = true;
+                }
+            }
+
+            const updatedUser = await store.updateById('users', req.user.id, (user) => {
+                return { 
+                    airdropSubmitted: true,
+                    submittedWallet: bscWallet,
+                    xLink: xLink,
+                    reviewComment: reviewComment || '',
+                    isFounderAirdrop: founderApproved,
+                    projectName: founderApproved ? projectName : null,
+                    projectTicker: founderApproved ? projectTicker : null,
+                    projectManifesto: founderApproved ? projectManifesto : null,
+                    projectSocial: founderApproved ? projectSocial : null,
+                    projectWebsite: founderApproved ? projectWebsite : null,
+                    projectContract: founderApproved ? projectContract : null,
+                    projectGoals: founderApproved ? projectGoals : null,
+                    founderSocial: founderApproved ? founderSocial : null,
+                    projectLogo: founderApproved ? projectLogo : null,
+                    projectBanner: founderApproved ? projectBanner : null,
+                    airdropSubmittedAt: new Date().toISOString(),
+                    bagTokens: (user.bagTokens || 0) + 5000 // Reserved allocation (Reserve ITEMS)
+                };
+            });
+
+            if (!updatedUser) return res.status(404).json({ error: 'User not found' });
+            
+            res.json({ 
+                success: true, 
+                message: 'Airdrop submission received! Welcome to AlphaBAG.',
+                isFounder: founderApproved,
+                bagTokens: updatedUser.bagTokens,
+                items: updatedUser.items || 0
+            });
+        } catch (error) {
+            console.error("Airdrop Submit Error:", error);
+            res.status(500).json({ error: 'Submission failed' });
         }
-
-        const updatedUser = await store.updateById('users', req.user.id, (user) => {
-            return { 
-                airdropSubmitted: true,
-                submittedWallet: bscWallet,
-                xLink: xLink,
-                reviewComment: reviewComment || '',
-                isFounderAirdrop: founderApproved,
-                projectName: founderApproved ? projectName : null,
-                projectTicker: founderApproved ? projectTicker : null,
-                projectManifesto: founderApproved ? projectManifesto : null,
-                projectSocial: founderApproved ? projectSocial : null,
-                projectWebsite: founderApproved ? projectWebsite : null,
-                projectContract: founderApproved ? projectContract : null,
-                projectGoals: founderApproved ? projectGoals : null,
-                founderSocial: founderApproved ? founderSocial : null,
-                projectLogo: founderApproved ? projectLogo : null,
-                projectBanner: founderApproved ? projectBanner : null,
-                airdropSubmittedAt: new Date().toISOString(),
-                bagTokens: (user.bagTokens || 0) + 5000 // Reserved allocation (Reserve ITEMS)
-            };
-        });
-
-        if (!updatedUser) return res.status(404).json({ error: 'User not found' });
-        
-        res.json({ 
-            success: true, 
-            message: 'Airdrop submission received! Welcome to AlphaBAG.',
-            isFounder: founderApproved,
-            bagTokens: updatedUser.bagTokens,
-            items: updatedUser.items || 0
-        });
-    } catch (error) {
-        console.error("Airdrop Submit Error:", error);
-        res.status(500).json({ error: 'Submission failed' });
     }
-};
+];
 
 export const getAirdropStats = async (req, res) => {
     try {
@@ -565,85 +572,105 @@ export const getTasks = async (req, res) => {
     }
 };
 
-export const completeTask = async (req, res) => {
-    try {
-        const { taskId, taskLink } = req.body;
-        if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized' });
-
-        const tasks = await store.read('tasks') || [];
-        const task = tasks.find(t => t.id === taskId);
-
-        if (!task || task.status !== 'ACTIVE') {
-            return res.status(400).json({ error: 'Mission invalid or expired' });
+export const completeTask = [
+    ...validateCompleteTask,
+    async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ error: 'Invalid input', details: errors.array() });
         }
+        
+        try {
+            const { taskId, taskLink } = req.body;
+            if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized' });
 
-        if (task.requiresLink) {
-            if (!taskLink || !isValidHttpUrl(taskLink)) {
-                return res.status(400).json({ error: 'Proof link must be a valid HTTP/HTTPS URL' });
-            }
-        }
-
-        const user = await store.updateById('users', req.user.id, (u) => {
-            if (u.isBanned) throw new Error('Your account has been permanently suspended from the T2E program due to protocol violations.');
-            
-            const completed = u.completedTasks || [];
-            
-            // Handle limits
-            if (task.type === 'once' && completed.includes(taskId)) {
-                throw new Error('Mission already completed');
-            }
-            
-            if (task.type === 'daily') {
-                const today = new Date().toISOString().split('T')[0];
-                const lastDaily = u.lastDailyTaskAt;
-                if (lastDaily === today) {
-                    throw new Error('Daily mission already completed');
+            // === CAPTCHA VERIFICATION ===
+            const captchaToken = req.body.captchaToken || req.headers['x-captcha-token'];
+            if (process.env.CAPTCHA_SECRET_KEY) {
+                if (!captchaToken) {
+                    return res.status(400).json({ error: 'CAPTCHA token required' });
                 }
-                u.lastDailyTaskAt = today;
+                const captchaValid = await verifyCaptcha(captchaToken);
+                if (!captchaValid) {
+                    return res.status(400).json({ error: 'CAPTCHA verification failed' });
+                }
             }
 
-            if (task.type === 'weekly') {
-                const now = new Date();
-                const lastWeeklyObj = u.weeklyTasks ? u.weeklyTasks[taskId] : null;
-                if (lastWeeklyObj) {
-                    const lastDate = new Date(lastWeeklyObj.date);
-                    const diffTime = Math.abs(now - lastDate);
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-                    if (diffDays <= 7) {
-                        throw new Error('Weekly mission already completed. Come back next week.');
+            const tasks = await store.read('tasks') || [];
+            const task = tasks.find(t => t.id === taskId);
+
+            if (!task || task.status !== 'ACTIVE') {
+                return res.status(400).json({ error: 'Mission invalid or expired' });
+            }
+
+            if (task.requiresLink) {
+                if (!taskLink || !isValidHttpUrl(taskLink)) {
+                    return res.status(400).json({ error: 'Proof link must be a valid HTTP/HTTPS URL' });
+                }
+            }
+
+            const user = await store.updateById('users', req.user.id, (u) => {
+                if (u.isBanned) throw new Error('Your account has been permanently suspended from the T2E program due to protocol violations.');
+                
+                const completed = u.completedTasks || [];
+                
+                // Handle limits
+                if (task.type === 'once' && completed.includes(taskId)) {
+                    throw new Error('Mission already completed');
+                }
+                
+                if (task.type === 'daily') {
+                    const today = new Date().toISOString().split('T')[0];
+                    const lastDaily = u.lastDailyTaskAt;
+                    if (lastDaily === today) {
+                        throw new Error('Daily mission already completed');
+                    }
+                    u.lastDailyTaskAt = today;
+                }
+
+                if (task.type === 'weekly') {
+                    const now = new Date();
+                    const lastWeeklyObj = u.weeklyTasks ? u.weeklyTasks[taskId] : null;
+                    if (lastWeeklyObj) {
+                        const lastDate = new Date(lastWeeklyObj.date);
+                        const diffTime = Math.abs(now - lastDate);
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                        if (diffDays <= 7) {
+                            throw new Error('Weekly mission already completed. Come back next week.');
+                        }
+                    }
+                    u.weeklyTasks = u.weeklyTasks || {};
+                    u.weeklyTasks[taskId] = { date: now.toISOString(), link: taskLink };
+                }
+
+                if (task.type !== 'unlimited' && task.type !== 'weekly') {
+                    completed.push(taskId);
+                } else if (task.type === 'weekly') {
+                    if (!completed.includes(taskId)) {
+                        completed.push(taskId);
                     }
                 }
-                u.weeklyTasks = u.weeklyTasks || {};
-                u.weeklyTasks[taskId] = { date: now.toISOString(), link: taskLink };
-            }
 
-            if (task.type !== 'unlimited' && task.type !== 'weekly') {
-                completed.push(taskId);
-            } else if (task.type === 'weekly') {
-                if (!completed.includes(taskId)) {
-                    completed.push(taskId);
+                if (taskLink) {
+                    u.submittedLinks = u.submittedLinks || [];
+                    u.submittedLinks.push({ taskId, link: taskLink, date: new Date().toISOString() });
                 }
-            }
 
-            if (taskLink) {
-                u.submittedLinks = u.submittedLinks || [];
-                u.submittedLinks.push({ taskId, link: taskLink, date: new Date().toISOString() });
-            }
+                return {
+                    completedTasks: completed,
+                    items: (u.items || 0) + task.rewardTokens,
+                    lastDailyTaskAt: u.lastDailyTaskAt,
+                    weeklyTasks: u.weeklyTasks,
+                    submittedLinks: u.submittedLinks
+                };
+            });
 
-            return {
-                completedTasks: completed,
-                items: (u.items || 0) + task.rewardTokens,
-                lastDailyTaskAt: u.lastDailyTaskAt,
-                weeklyTasks: u.weeklyTasks,
-                submittedLinks: u.submittedLinks
-            };
-        });
-
-        res.json({ success: true, points: user.bagTokens, items: user.items, message: `Mission Complete: +${task.rewardTokens} ITEMS` });
-    } catch (error) {
-        res.status(400).json({ error: error.message || 'Mission failure' });
+            res.json({ success: true, points: user.bagTokens, items: user.items, message: `Mission Complete: +${task.rewardTokens} ITEMS` });
+        } catch (error) {
+            res.status(400).json({ error: error.message || 'Mission failure' });
+        }
     }
-};
+];
 
 // --- SYNDICATE INTELLIGENCE (ADMIN) ---
 

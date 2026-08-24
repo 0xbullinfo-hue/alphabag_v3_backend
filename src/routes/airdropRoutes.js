@@ -1,6 +1,6 @@
 import express from 'express';
 import { 
-    getAirdropStatus, claimPoints, submitWallet, validateSubmitWallet, validateCompleteTask, getCampaigns, createCampaign, updateCampaign, deleteCampaign, 
+    getAirdropStatus, claimPoints, submitWallet, completeTask, validateSubmitWallet, validateCompleteTask, getCampaigns, createCampaign, updateCampaign, deleteCampaign, 
     getAdminTasks, upsertTask, deleteTask, processReferralSnapshot,
     getAirdropStats, getSubmittedWallets, resetAirdrop, toggleReveal, approveFounder, grantBonusXP,
     pauseMission, getMissionStatus, exportMissionData, fullMissionWipe, updateTgeDate,
@@ -18,11 +18,12 @@ const router = express.Router();
 router.get('/status', optionalAuth, getAirdropStatus);
 router.get('/stats', optionalAuth, getAirdropStats);
 router.post('/claim', verifyToken, claimPoints);
-router.post('/submit-wallet', verifyToken, validateSubmitWallet, submitWallet);
+router.post('/submit-wallet', verifyToken, submitWallet);
 router.post('/convert', verifyToken, convertItemsToBag);
 router.post('/payout', verifyToken, requestBagPayout);
 router.get('/tasks', optionalAuth, getMissions);
-router.post('/tasks/complete', verifyToken, validateCompleteTask, claimMission);
+router.post('/tasks/complete', verifyToken, completeTask);
+router.post('/complete-task', verifyToken, completeTask);
 
 // Admin Routes - Campaigns
 router.get('/admin/campaigns', verifyToken, verifyAdmin, getCampaigns);
