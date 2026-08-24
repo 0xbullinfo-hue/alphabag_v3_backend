@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 const TREASURY_PRIVATE_KEY = process.env.TREASURY_PRIVATE_KEY;
 const TREASURY_WALLET = process.env.TREASURY_WALLET;
 import { store } from '../services/storeService.js';
@@ -359,7 +360,7 @@ export const claimMission = async (req, res) => {
             // Processing Claim
             const claimWindow = computeClaimWindow(missionId, mission.frequency, now);
             const newClaim = {
-                id: Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
                 userId,
                 missionId,
                 claimWindow,
@@ -413,7 +414,7 @@ export const claimMission = async (req, res) => {
 
             const updatedUser = await store.findOne('users', { id: userId });
             const activity = {
-                id: Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
                 userHandle: updatedUser?.verifiedWallet?.slice(0, 8) || userId.slice(0, 8),
                 taskType: mission.type,
                 pointsEarned: Number(mission.rewardTokens),
@@ -474,7 +475,7 @@ export const requestBagPayout = async (req, res) => {
             const payoutWallet = user.preferredWallet || user.verifiedWallet || userId;
 
             const request = {
-                id: Math.random().toString(36).substr(2, 9),
+                id: crypto.randomUUID(),
                 userId,
                 expectedTokens: Number(amount),
                 walletAddress: payoutWallet,
@@ -555,7 +556,7 @@ export const upsertMission = async (req, res) => {
         let missions = await store.read('t2e_missions') || [];
 
         const mission = {
-            id: id || 't2e_' + Math.random().toString(36).substr(2, 9),
+            id: id || 't2e_' + crypto.randomUUID(),
             title,
             description,
             rewardTokens: parseFloat(rewardTokens),
@@ -780,22 +781,25 @@ export const exportApprovedPayouts = async (req, res) => {
         const requests = await store.read('t2e_payout_requests') || [];
         const approved = requests.filter(r => r.status === 'APPROVED');
         
-        let config = await store.findOne('t2e_config', { id: 'global_config' });
-        // Handle config stored in array format by adjustTreasuryBalance
-        if (Array.isArray(config)) config = config[0];
-        const rate = config?.itemsToBagRate || 1;
+        // Sanitize CSV cells against formula injection (=, +, -, @)
+        const cell = (val) => {
+            let str = String(val ?? '');
+            if (/^[+=@-]/.test(str)) str = "'" + str;
+            return JSON.stringify(str);
+        };
 
-        let csvContent = "Wallet,ITEMS_Earned,BAG_Tokens\n";
+        const headers = ['Wallet', 'Amount', 'Status', 'Approved At', 'Tx Reference'];
+        let csvContent = headers.map(cell).join(',') + '\n';
+        
         approved.forEach(r => {
-            const bagTokens = Number(r.expectedTokens) / rate;
-            csvContent += `${r.walletAddress},${r.expectedTokens},${bagTokens.toFixed(2)}\n`;
+            csvContent += [cell(r.wallet || r.userId), cell(r.amount), cell(r.status), cell(r.approvedAt || r.createdAt), cell(r.txHash || r.id)].join(',') + '\n';
         });
 
         res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename=approved_payouts_${new Date().toISOString().split('T')[0]}.csv`);
-        res.status(200).send(csvContent);
+        res.setHeader('Content-Disposition', `attachment; filename="approved_payouts_${Date.now()}.csv"`);
+        res.send(csvContent);
     } catch (error) {
-        console.error('[T2E] Export Approved Error:', error);
-        res.status(500).json({ error: 'Failed to export approved payouts' });
+        console.error('[T2E] Export Payouts Error:', error);
+        res.status(500).json({ error: 'Failed to export payouts' });
     }
 };

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 // SPDX-License-Identifier: MIT
 // PATCH: authController.js — Zero hardcoded wallets + full auth suite
 // Fixes:
@@ -152,7 +153,7 @@ export const siweAuth = async (req, res) => {
 
         if (!user) {
             isNew = true;
-            const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+            const referralCode = crypto.randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
             let referredBy = null;
 
             if (refCode && typeof refCode === 'string') {

@@ -1,4 +1,25 @@
 
+// === CAPTCHA VERIFICATION HELPER ===
+async function verifyCaptcha(token) {
+    if (!token) return false;
+    const secret = process.env.CAPTCHA_SECRET_KEY;
+    if (!secret) return true; // Pass through if captcha is not configured in env
+    try {
+        const verifyUrl = process.env.CAPTCHA_VERIFY_URL || 'https://hcaptcha.com/siteverify';
+        const response = await fetch(verifyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ secret, response: token })
+        });
+        const data = await response.json();
+        return Boolean(data.success);
+    } catch (err) {
+        console.error('[CAPTCHA] Verification error:', err);
+        return false;
+    }
+}
+import crypto from 'crypto';
+
 function isValidHttpUrl(string) {
     if (!string) return true; // Optional fields can be empty
     try {
@@ -15,7 +36,7 @@ const recordActivity = async (username, action, points) => {
     try {
         const activity = await store.read('activity') || [];
         activity.unshift({
-            id: Math.random().toString(36).substr(2, 9),
+            id: crypto.randomUUID(),
             username: username || 'Member',
             action,
             points,
@@ -363,7 +384,7 @@ export const createCampaign = async (req, res) => {
     try {
         const { tokenTicker, pointsPerClaim, durationDays, status, isSubmissionActive } = req.body;
         const newCamp = {
-            id: Math.random().toString(36).substr(2, 9),
+            id: crypto.randomUUID(),
             tokenTicker: tokenTicker || '🔒',
             pointsPerClaim: pointsPerClaim || 50,
             durationDays: durationDays || 7,
@@ -542,8 +563,6 @@ export const completeTask = async (req, res) => {
                 return res.status(400).json({ error: 'Proof link must be a valid HTTP/HTTPS URL' });
             }
         }
-            return res.status(400).json({ error: 'A valid proof link is required for this mission' });
-        }
 
         const user = await store.updateById('users', req.user.id, (u) => {
             if (u.isBanned) throw new Error('Your account has been permanently suspended from the T2E program due to protocol violations.');
@@ -705,7 +724,7 @@ export const grantBonusXP = async (req, res) => {
         if (amount < 0) {
             try {
                 const newLog = {
-                    id: Math.random().toString(36).substr(2, 9),
+                    id: crypto.randomUUID(),
                     userId,
                     adminId: req.user?.id || 'admin',
                     reason: `Balance Deduction: ${amount} ITEMS`,
@@ -925,7 +944,7 @@ export const issueStrike = async (req, res) => {
 
         // Log strike
         const newLog = {
-            id: Math.random().toString(36).substr(2, 9),
+            id: crypto.randomUUID(),
             userId,
             adminId,
             reason: reason || 'Protocol violation',
