@@ -157,7 +157,8 @@ export const siweAuth = async (req, res) => {
 
             if (refCode && typeof refCode === 'string') {
                 const referrer = userArr.find(u => u.referralCode === refCode.toUpperCase());
-                if (referrer) {
+                // Self-referral blocked: referrer must be different from new user
+                if (referrer && referrer.wallet?.toLowerCase() !== checksummedAddress?.toLowerCase() && referrer.address?.toLowerCase() !== checksummedAddress?.toLowerCase()) {
                     referredBy = referrer.id;
                     const referrerCount = referrer.referralCount || 0;
                     if (referrerCount < 1000) {

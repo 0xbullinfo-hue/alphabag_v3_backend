@@ -31,7 +31,21 @@ const t2eEmitter = new EventEmitter();
  * applied blind — see the accompanying audit notes for the exact schema
  * change and controller update needed to complete this properly.
  */
+// In-memory claim lock with TTL cleanup.
+// NOTE: This is per-process only. For horizontal scaling (multiple server instances),
+// replace with a Redis-based distributed lock (e.g. Redlock).
+const LOCK_TTL_MS = 30_000; // 30 second max hold time
 const claimLocks = new Map();
+
+// Periodic cleanup of stale locks (prevents memory leak in long-running processes)
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of claimLocks.entries()) {
+        if (entry.createdAt && (now - entry.createdAt) > LOCK_TTL_MS * 2) {
+            claimLocks.delete(key);
+        }
+    }
+}, 60_000);
 async function withClaimLock(key, fn) {
     const previous = claimLocks.get(key) || Promise.resolve();
     let release;
