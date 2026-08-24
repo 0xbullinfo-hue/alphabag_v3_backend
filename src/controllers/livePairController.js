@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { store } from '../services/storeService.js';
 
 // ─── SERVER-SIDE CACHE ────────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ export const submitPair = async (req, res) => {
 
         // ─── 6. Save submission ───────────────────────────────────────────────
         const submission = {
-            id: 'pair_' + Math.random().toString(36).substr(2, 9),
+            id: 'pair_' + crypto.randomUUID(),
             userId,
             contractAddress: primaryPair.baseToken.address,
             chainId: primaryPair.chainId,

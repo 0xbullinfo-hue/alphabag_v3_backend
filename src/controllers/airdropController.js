@@ -446,6 +446,25 @@ export const deleteCampaign = async (req, res) => {
     }
 };
 
+
+// === INPUT VALIDATION MIDDLEWARE ===
+export const validateSubmitWallet = [
+  body('bscWallet').optional().trim().isLength({ max: 42 }),
+  body('projectName').optional().trim().isLength({ max: 100 }),
+  body('projectTicker').optional().trim().matches(/^[A-Z0-9]{1,10}$/),
+  body('projectWebsite').optional().trim().isURL({ protocols: ['https', 'http'] }),
+  body('projectSocial').optional().trim().isURL({ protocols: ['https', 'http'] }),
+  body('projectLogo').optional().trim().isURL({ protocols: ['https', 'http'] }),
+  body('projectBanner').optional().trim().isURL({ protocols: ['https', 'http'] }),
+  body('projectManifesto').optional().trim().isLength({ max: 2000 }),
+  body('reviewComment').optional().trim().isLength({ max: 1000 }),
+];
+
+export const validateCompleteTask = [
+  body('taskId').trim().notEmpty().isLength({ max: 100 }),
+  body('taskLink').optional().trim().isURL({ protocols: ['https', 'http'] }).isLength({ max: 500 }),
+];
+
 export const getSubmittedWallets = async (req, res) => {
     try {
         const users = await store.read('users');
@@ -671,7 +690,7 @@ export const upsertTask = async (req, res) => {
         let tasks = await store.read('tasks') || [];
 
         if (!task.id) {
-            task.id = 't' + Math.random().toString(36).substr(2, 5);
+            task.id = 't' + crypto.randomUUID();
             tasks.push(task);
         } else {
             const index = tasks.findIndex(t => t.id === task.id);
