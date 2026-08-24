@@ -1,3 +1,13 @@
+
+function isValidHttpUrl(string) {
+    if (!string) return true; // Optional fields can be empty
+    try {
+        const url = new URL(string);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch (_) {
+        return false;
+    }
+}
 import { body, validationResult } from 'express-validator';
 import { store } from '../services/storeService.js';
 
@@ -235,6 +245,10 @@ export const submitWallet = async (req, res) => {
         
         if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized' });
         if (!bscWallet) return res.status(400).json({ error: 'BSC Wallet is required' });
+
+        if (!isValidHttpUrl(xLink) || !isValidHttpUrl(projectSocial) || !isValidHttpUrl(projectWebsite) || !isValidHttpUrl(projectLogo) || !isValidHttpUrl(projectBanner)) {
+            return res.status(400).json({ error: 'Invalid URL format for project links or images (must start with http:// or https://)' });
+        }
 
         if (isFounderRequest) {
             if (!projectName || !projectTicker || !projectManifesto || !projectContract || !projectGoals || !founderSocial) {
@@ -523,7 +537,11 @@ export const completeTask = async (req, res) => {
             return res.status(400).json({ error: 'Mission invalid or expired' });
         }
 
-        if (task.requiresLink && !taskLink) {
+        if (task.requiresLink) {
+            if (!taskLink || !isValidHttpUrl(taskLink)) {
+                return res.status(400).json({ error: 'Proof link must be a valid HTTP/HTTPS URL' });
+            }
+        }
             return res.status(400).json({ error: 'A valid proof link is required for this mission' });
         }
 

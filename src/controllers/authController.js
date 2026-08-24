@@ -336,9 +336,7 @@ export const verifyUpgrade = async (req, res) => {
             }
         }
 
-        if (!isEligible && (process.env.NODE_ENV || 'development') !== 'production') {
-            isEligible = true;
-        }
+        // Strict eligibility: requires verified on-chain token holding
 
         if (!isEligible) {
             return res.status(403).json({ error: 'Insufficient $BAG balance. 10,000 $BAG required for ULTIMATE tier.' });

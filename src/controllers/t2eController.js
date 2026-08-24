@@ -613,7 +613,7 @@ export const approveTokenRequest = async (req, res) => {
         }
 
         // Simulating Live Transaction for Beta
-        const txHash = '0x' + Math.random().toString(16).substr(2, 64);
+        const txHash = req.body?.txHash || null;
 
         await store.updateById('t2e_payout_requests', id, () => ({ 
             status: 'APPROVED',
@@ -681,7 +681,7 @@ export const approveAllTokenRequests = async (req, res) => {
                 return {
                     ...r,
                     status: 'APPROVED',
-                    txHash: '0x' + Math.random().toString(16).substr(2, 64)
+                    txHash: null, approvedAt: new Date().toISOString()
                 };
             }
             return r;
