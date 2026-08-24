@@ -799,7 +799,12 @@ export const exportMissionData = async (req, res) => {
         const headers = ['id','email','username','wallet','totalXP','convertedBAG','referralCount','dailyStreak','completedTasks','submittedAt','isFounder', 'feedback'];
         const csv = [
             headers.join(','),
-            ...snapshot.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+            ...snapshot.map(row => headers.map(h => {
+                let val = String(row[h] ?? '');
+                // Sanitize CSV formula injection (prevent execution of =, +, -, @ formulas in spreadsheet software)
+                if (/^[+=@-]/.test(val)) val = "'" + val;
+                return JSON.stringify(val);
+            }).join(','))
         ].join('\n');
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename="alphabag_snapshot_${new Date().toISOString().split('T')[0]}.csv"`);
