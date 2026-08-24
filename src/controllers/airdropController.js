@@ -1,3 +1,4 @@
+import { body, validationResult } from 'express-validator';
 import { store } from '../services/storeService.js';
 
 const recordActivity = async (username, action, points) => {
@@ -661,6 +662,10 @@ export const deleteTask = async (req, res) => {
 };
 
 export const grantBonusXP = async (req, res) => {
+    const { userId, bonusTokens } = req.body;
+    if (bonusTokens < 0) {
+        return res.status(403).json({ error: 'Negative deductions require dual-admin approval workflow' });
+    }
     try {
         const { userId, bonusTokens } = req.body;
         if (!userId || bonusTokens === undefined || isNaN(bonusTokens)) {

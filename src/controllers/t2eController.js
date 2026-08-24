@@ -1,3 +1,5 @@
+const TREASURY_PRIVATE_KEY = process.env.TREASURY_PRIVATE_KEY;
+const TREASURY_WALLET = process.env.TREASURY_WALLET;
 import { store } from '../services/storeService.js';
 import { EventEmitter } from 'events';
 import fs from 'fs';
