@@ -283,29 +283,9 @@ export const submitWallet = [
                 }
             }
 
-            const users = await store.read('users');
-            const submittedCount = users.filter(u => u.airdropSubmitted).length;
-
-            if (submittedCount >= 1000) {
-                return res.status(400).json({ error: 'Airdrop Phase 1 is full. All 1000 spots claimed.' });
-            }
-
-            const existing = await store.findOne('users', { id: req.user.id });
-            if (existing && existing.airdropSubmitted) {
-                return res.status(400).json({ error: 'Airdrop already submitted for this account.' });
-            }
-
-            // Potential Founder spot check
-            let founderApproved = false;
-            if (isFounderRequest) {
-                const founderCount = users.filter(u => u.isFounderAirdrop).length;
-                if (founderCount < 100) {
-                    founderApproved = true;
-                }
-            }
-
-            const updatedUser = await store.updateById('users', req.user.id, (user) => {
-                return { 
+            const result = await store.submitAirdropAtomic(
+                req.user.id,
+                (user, founderApproved) => ({
                     airdropSubmitted: true,
                     submittedWallet: bscWallet,
                     xLink: xLink,
@@ -321,17 +301,28 @@ export const submitWallet = [
                     founderSocial: founderApproved ? founderSocial : null,
                     projectLogo: founderApproved ? projectLogo : null,
                     projectBanner: founderApproved ? projectBanner : null,
-                    airdropSubmittedAt: new Date().toISOString(),
+                    airdropSubmittedAt: new Date(),
                     bagTokens: (user.bagTokens || 0) + 5000 // Reserved allocation (Reserve ITEMS)
-                };
-            });
+                }),
+                { isFounderRequest, maxTotal: 1000, maxFounders: 100 }
+            );
 
-            if (!updatedUser) return res.status(404).json({ error: 'User not found' });
-            
+            if (result.status === 'NOT_FOUND') {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            if (result.status === 'ALREADY_SUBMITTED') {
+                return res.status(400).json({ error: 'Airdrop already submitted for this account.' });
+            }
+            if (result.status === 'FULL') {
+                return res.status(400).json({ error: 'Airdrop Phase 1 is full. All 1000 spots claimed.' });
+            }
+
+            const updatedUser = result.user;
+
             res.json({ 
                 success: true, 
                 message: 'Airdrop submission received! Welcome to AlphaBAG.',
-                isFounder: founderApproved,
+                isFounder: result.founderApproved,
                 bagTokens: updatedUser.bagTokens,
                 items: updatedUser.items || 0
             });

@@ -46,7 +46,13 @@ const corsOptions = {
       console.warn(`[CORS] Blocked origin: ${origin}`);
       return callback(new Error('Not allowed by CORS'));
     }
-    if (origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:')) {
+    if (
+      origin.startsWith('http://localhost:') || 
+      origin.startsWith('https://localhost:') ||
+      origin.startsWith('http://127.0.0.1:') ||
+      origin.startsWith('https://127.0.0.1:') ||
+      origin.startsWith('http://[::1]:')
+    ) {
       return callback(null, true);
     }
     console.warn(`[CORS] Blocked origin in dev: ${origin}`);

@@ -16,8 +16,16 @@ export const TOKEN_GATING_CONFIG = {
   MIN_BAG_REQUIRED: Number(process.env.MIN_BAG_REQUIRED) || 0,
 
   // ===== ADMIN WALLET CONFIGURATION =====
-  // Comma-separated list of admin wallet addresses
-  ADMIN_WALLETS: (process.env.ADMIN_WALLETS || '0x42916A998c6Bff7F36bE61749Bd1BBA9f473dB96')
+  // Comma-separated list of admin wallet addresses.
+  // NOTE: this file is a legacy/duplicate path. Real admin verification is
+  // DB-driven (see storeService's `admins` collection, checked in
+  // authMiddleware.js's verifyToken/optionalAuth). There is intentionally
+  // no hardcoded fallback wallet here — an empty ADMIN_WALLETS means
+  // "no admins configured via this legacy path", not "use the default
+  // wallet", since a baked-in default address is exactly the hardcoded-
+  // admin-wallet vulnerability class this codebase already remediated
+  // elsewhere.
+  ADMIN_WALLETS: (process.env.ADMIN_WALLETS || '')
     .split(',')
     .map(w => w.trim())
     .filter(Boolean),

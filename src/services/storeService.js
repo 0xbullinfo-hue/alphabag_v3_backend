@@ -352,6 +352,62 @@ class StoreService {
             }
         });
     }
+
+    /**
+     * Atomically submit a user's airdrop entry, enforcing the global
+     * submission cap and founder-spot cap inside a single Postgres
+     * SERIALIZABLE transaction — not just the in-process mutex used by
+     * update()/updateById(). This closes a TOCTOU race where concurrent
+     * requests could each read a stale count, all pass the "spots
+     * remaining" check, and collectively overshoot the 1000/100 caps
+     * (this is the DB-enforced fix; it also holds correctly across
+     * multiple backend instances, unlike the in-memory `lock()`).
+     *
+     * Returns one of:
+     *   { status: 'ALREADY_SUBMITTED' }
+     *   { status: 'FULL' }
+     *   { status: 'OK', user, founderApproved }
+     */
+    async submitAirdropAtomic(userId, buildFields, { isFounderRequest = false, maxTotal = 1000, maxFounders = 100 } = {}) {
+        const maxAttempts = 3;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return await prisma.$transaction(async (tx) => {
+                    const existing = await tx.user.findUnique({ where: { id: userId } });
+                    if (!existing) {
+                        return { status: 'NOT_FOUND' };
+                    }
+                    if (existing.airdropSubmitted) {
+                        return { status: 'ALREADY_SUBMITTED' };
+                    }
+
+                    const submittedCount = await tx.user.count({ where: { airdropSubmitted: true } });
+                    if (submittedCount >= maxTotal) {
+                        return { status: 'FULL' };
+                    }
+
+                    let founderApproved = false;
+                    if (isFounderRequest) {
+                        const founderCount = await tx.user.count({ where: { isFounderAirdrop: true } });
+                        founderApproved = founderCount < maxFounders;
+                    }
+
+                    const fields = sanitizeData('user', buildFields(existing, founderApproved));
+                    const updated = await tx.user.update({ where: { id: userId }, data: fields });
+                    return { status: 'OK', user: updated, founderApproved };
+                }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+            } catch (error) {
+                // Serialization failures (Prisma P2034) are expected under
+                // contention with SERIALIZABLE isolation — retry a few times
+                // before giving up.
+                const isSerializationConflict = error && (error.code === 'P2034' || /could not serialize/i.test(error.message || ''));
+                if (isSerializationConflict && attempt < maxAttempts) {
+                    continue;
+                }
+                throw error;
+            }
+        }
+    }
 }
 
 export const store = new StoreService();

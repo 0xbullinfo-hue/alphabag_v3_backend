@@ -231,6 +231,30 @@ export const login = async (req, res) => {
         return res.status(403).json({ error: 'Invalid credentials' });
     }
 
+        // ── LOCAL ADMIN PREVIEW CREDENTIALS CHECK ────────────────────────────────
+    if (
+        !config.isProduction &&
+        config.localAdminPreviewEmail &&
+        config.localAdminPreviewPassword &&
+        email?.toLowerCase() === config.localAdminPreviewEmail.toLowerCase() &&
+        password === config.localAdminPreviewPassword
+    ) {
+        const token = jwt.sign(
+            { id: 'admin-preview', email: config.localAdminPreviewEmail, isAdmin: true },
+            config.jwtSecret,
+            { expiresIn: '24h' }
+        );
+        return res.json({
+            token,
+            user: {
+                id: 'admin-preview',
+                email: config.localAdminPreviewEmail,
+                isAdmin: true,
+                role: 'SUPER_ADMIN'
+            }
+        });
+    }
+
     const user = await store.findOne('admins', { email });
     if (!user || !user.password) {
         return res.status(400).json({ error: 'Invalid credentials' });
