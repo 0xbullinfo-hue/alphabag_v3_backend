@@ -2,7 +2,7 @@ import express from 'express';
 import { getPrices, searchCoins } from '../controllers/marketController.js';
 import { tokenPriceController } from '../controllers/tokenPriceController.js';
 import { dexController } from '../controllers/dexController.js';
-import { getTopHolders, followWhale, getTransactions, getWallets, getTokenTransfers } from '../controllers/whaleController.js';
+import { getAddressTransactions, getTopHolders, followWhale, getTransactions, getWallets, getTokenTransfers } from '../controllers/whaleController.js';
 import { getBriefing, analyzePortfolio, streamNeuralCore } from '../controllers/aiController.js';
 import { getHistory, saveSnapshot } from '../controllers/historyController.js';
 import { getBalances, streamPortfolio } from '../controllers/portfolioController.js';
@@ -19,6 +19,7 @@ dexRouter.get('/search', dexController.searchPairs);
 dexRouter.get('/tokens/:tokenAddress', dexController.getTokenPairs);
 
 const whaleRouter = express.Router();
+whaleRouter.get('/address/:address/transactions', getAddressTransactions);
 whaleRouter.get('/transactions', getTransactions);
 whaleRouter.get('/wallets', getWallets);
 whaleRouter.get('/transfers', getTokenTransfers);
@@ -32,6 +33,7 @@ aiRouter.post('/neural-core', verifyToken, streamNeuralCore);
 
 const portfolioRouter = express.Router();
 portfolioRouter.get('/history', getHistory);
+portfolioRouter.get('/public-balances', getBalances);
 portfolioRouter.get('/balances', verifyToken, getBalances);
 portfolioRouter.post('/snapshot', saveSnapshot);
 

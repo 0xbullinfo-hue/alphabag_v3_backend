@@ -14,6 +14,11 @@ import authRoutes from './routes/authRoutes.js';
 import t2eRoutes from './routes/t2eRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import adminSeedRoutes from './routes/adminSeedRoutes.js';
+import { aiRouter, cexRouter, dexRouter, marketRouter, portfolioRouter, streamRouter, whaleRouter } from './routes/serviceRoutes.js';
+import { configRouter, rpcRouter, securityRouter } from './routes/integrationRoutes.js';
+import proxyRoutes from './routes/proxyRoutes.js';
+import publicRoutes from './routes/publicRoutes.js';
+import projectRoutes from './routes/projectRoutes.js';
 import { verifyToken, verifyAdmin } from './middleware/authMiddleware.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -60,7 +65,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Request-ID', 'X-Client-Timestamp'],
   maxAge: 86400,
 };
 
@@ -83,6 +88,14 @@ const apiLimiter = rateLimit({
   standardHeaders: true, legacyHeaders: false,
 });
 
+const publicBalanceLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: 'Too many public balance requests. Please try again shortly.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 500,
   message: { error: 'Too many admin requests, please try again later.' },
@@ -97,6 +110,7 @@ const seedLimiter = rateLimit({
 
 app.use('/api/auth', authLimiter);
 app.use('/api', apiLimiter);
+app.use('/api/portfolio/public-balances', publicBalanceLimiter);
 app.use('/api/admin', adminLimiter);
 app.use('/api/admin-seed', seedLimiter);
 
@@ -109,10 +123,23 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/t2e', t2eRoutes);
 app.use('/api/admin', verifyToken, verifyAdmin, adminRoutes);
+app.use('/api/market', marketRouter);
+app.use('/api/config', configRouter);
+app.use('/api/security', securityRouter);
+app.use('/api/rpc', rpcRouter);
+app.use('/api/dex', dexRouter);
+app.use('/api/whales', whaleRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/portfolio', portfolioRouter);
+app.use('/api/stream', streamRouter);
+app.use('/api/cex', cexRouter);
+app.use('/api/proxy', proxyRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api', publicRoutes);
 
-// SECURE BOOTSTRAP: One-time admin seed route.
-// Remove this line after creating your first admin and redeploy.
-app.use('/api/admin-seed', adminSeedRoutes);
+if (!config.isProduction) {
+  app.use('/api/admin-seed', adminSeedRoutes);
+}
 
 // ── 404 Handler ────────────────────────────────────────────────────────────
 app.use((req, res) => {

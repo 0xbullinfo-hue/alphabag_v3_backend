@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 // SPDX-License-Identifier: MIT
 // PATCH: authController.js — Zero hardcoded wallets + full auth suite
 // Fixes:
@@ -11,7 +10,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { generateNonce, SiweMessage } from 'siwe';
-import { verifyMessage, getAddress, createPublicClient, http, formatUnits } from 'viem';
+import { createPublicClient, http, formatUnits } from 'viem';
 import { bsc } from 'viem/chains';
 import { store } from '../services/storeService.js';
 import { config } from '../config/env.js';
@@ -33,6 +32,17 @@ const bscPublicClient = createPublicClient({
 
 const nonces = new Map();
 const NONCE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_ISSUED_AT_AGE_MS = 5 * 60 * 1000;
+const SUPPORTED_SIWE_CHAIN_IDS = new Set([1, 10, 56, 137, 8453, 42161, 43114]);
+
+const isTrustedDevelopmentOrigin = (origin) => {
+    try {
+        const url = new URL(origin);
+        return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+    } catch {
+        return false;
+    }
+};
 
 // ── Nonce Generation ───────────────────────────────────────────────────────
 export const getNonce = async (req, res) => {
@@ -63,6 +73,27 @@ export const verify = async (req, res) => {
 
         const siweMessage = new SiweMessage(message);
         const fields = await siweMessage.validate(signature);
+
+        const issuedAt = Date.parse(fields.issuedAt);
+        const expirationTime = fields.expirationTime ? Date.parse(fields.expirationTime) : null;
+        const expectedOrigin = new URL(config.frontendUrl).origin;
+        const expectedDomain = new URL(config.frontendUrl).host;
+        const isTrustedOrigin = config.isProduction
+            ? fields.domain === expectedDomain && fields.uri === expectedOrigin
+            : isTrustedDevelopmentOrigin(fields.uri) && isTrustedDevelopmentOrigin(`http://${fields.domain}`);
+
+        if (!isTrustedOrigin) {
+            return res.status(401).json({ error: 'SIWE domain or URI is not trusted' });
+        }
+        if (!SUPPORTED_SIWE_CHAIN_IDS.has(Number(fields.chainId))) {
+            return res.status(400).json({ error: 'Unsupported SIWE chain' });
+        }
+        if (!Number.isFinite(issuedAt) || Math.abs(Date.now() - issuedAt) > MAX_ISSUED_AT_AGE_MS) {
+            return res.status(400).json({ error: 'SIWE message timestamp is invalid or expired' });
+        }
+        if (expirationTime !== null && (!Number.isFinite(expirationTime) || expirationTime <= Date.now())) {
+            return res.status(400).json({ error: 'SIWE message has expired' });
+        }
 
         if (!fields.nonce || !nonces.has(fields.nonce)) {
             return res.status(400).json({ error: 'Invalid or expired nonce' });
@@ -107,104 +138,6 @@ export const verify = async (req, res) => {
     } catch (error) {
         console.error('Verification error:', error);
         res.status(401).json({ error: 'Invalid signature or message' });
-    }
-};
-
-// ── Legacy / Direct SIWE Auth Flow ──────────────────────────────────────────
-export const siweAuth = async (req, res) => {
-    const { address, signature, message, refCode } = req.body;
-
-    try {
-        if (!address || !signature || !message) {
-            return res.status(400).json({ error: 'Missing authentication parameters' });
-        }
-
-        let checksummedAddress = address;
-        try {
-            if (address && address.startsWith('0x')) {
-                checksummedAddress = getAddress(address);
-            }
-        } catch (addrErr) {
-            checksummedAddress = address;
-        }
-
-        let isValid = false;
-        try {
-            isValid = await verifyMessage({
-                address: checksummedAddress,
-                message,
-                signature,
-            });
-        } catch (vErr) {
-            return res.status(401).json({ error: 'Invalid signature format' });
-        }
-
-        if (!isValid) {
-            return res.status(401).json({ error: 'Signature verification failed' });
-        }
-
-        const normalizedId = address.toLowerCase();
-        let userArr = await store.read('users');
-        let user = userArr.find(u => u.id && typeof u.id === 'string' && u.id.toLowerCase() === normalizedId);
-        let isNew = false;
-
-        const adminRecord = await store.findOne('admins', { wallet: normalizedId });
-        const isAdmin = !!adminRecord;
-
-        if (!user) {
-            isNew = true;
-            const referralCode = crypto.randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
-            let referredBy = null;
-
-            if (refCode && typeof refCode === 'string') {
-                const referrer = userArr.find(u => u.referralCode === refCode.toUpperCase());
-                // Self-referral blocked: referrer must be different from new user
-                if (referrer && referrer.wallet?.toLowerCase() !== checksummedAddress?.toLowerCase() && referrer.address?.toLowerCase() !== checksummedAddress?.toLowerCase()) {
-                    referredBy = referrer.id;
-                    const referrerCount = referrer.referralCount || 0;
-                    if (referrerCount < 1000) {
-                        await store.updateById('users', referrer.id, r => ({
-                            items: (r.items || 0) + 100,
-                            referralCount: referrerCount + 1
-                        }));
-                    }
-                }
-            }
-
-            user = {
-                id: normalizedId,
-                email: `${address.substring(0, 6)}...${address.substring(address.length - 4)}`,
-                verifiedWallet: address,
-                wallet: normalizedId,
-                items: 5000,
-                bagTokens: 0,
-                referralCode,
-                referredBy,
-                referralCount: 0,
-                tier: 'FREE',
-                isAdmin,
-                lastActive: new Date().toISOString()
-            };
-            await store.create('users', user);
-        } else {
-            user = await store.updateById('users', normalizedId, u => ({
-                lastActive: new Date().toISOString(),
-                isAdmin
-            }));
-        }
-
-        const { password: _, ...userSafe } = user;
-        const token = jwt.sign({ 
-            id: user.id, 
-            email: user.email, 
-            isAdmin,
-            wallet: user.verifiedWallet || normalizedId 
-        }, config.jwtSecret, { expiresIn: '7d' });
-
-        res.json({ token, user: userSafe, isNew });
-    } catch (error) {
-        console.error("SIWE Auth Error:", error);
-        res.status(500).json({ error: error.message || 'Authentication protocol failure' });
     }
 };
 
@@ -336,15 +269,14 @@ export const updateProfile = async (req, res) => {
 
 export const verifyUpgrade = async (req, res) => {
     try {
-        const { walletAddress } = req.body;
         const userId = req.user?.id;
-        const wallet = walletAddress || req.user?.wallet || req.user?.address;
+        const wallet = req.user?.wallet || req.user?.address;
 
         if (!wallet) {
             return res.status(400).json({ error: 'Wallet address required' });
         }
 
-        const bagTokenAddress = process.env.BAG_TOKEN_ADDRESS || '0x0000000000000000000000000000000000000000';
+        const bagTokenAddress = config.bagTokenAddress || '0x0000000000000000000000000000000000000000';
         let isEligible = false;
 
         if (bagTokenAddress !== '0x0000000000000000000000000000000000000000') {
@@ -357,6 +289,7 @@ export const verifyUpgrade = async (req, res) => {
                 });
                 const balanceFormatted = Number(formatUnits(balanceRaw, 18));
                 if (balanceFormatted >= 10000) isEligible = true;
+                            if (balanceFormatted >= config.minimumBagForUltimate) isEligible = true;
             } catch (rpcErr) {
                 console.error('[UPGRADE] RPC balance check failed:', rpcErr);
             }
@@ -366,6 +299,7 @@ export const verifyUpgrade = async (req, res) => {
 
         if (!isEligible) {
             return res.status(403).json({ error: 'Insufficient $BAG balance. 10,000 $BAG required for ULTIMATE tier.' });
+                    return res.status(403).json({ error: `Insufficient $BAG balance. ${config.minimumBagForUltimate.toLocaleString()} $BAG required for ULTIMATE tier.` });
         }
 
         const updatedUser = await store.updateById('users', userId, u => ({

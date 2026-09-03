@@ -63,6 +63,8 @@ export const config = {
   coingeckoApiKey: process.env.COINGECKO_API_KEY || '',
   moralisApiKey: process.env.MORALIS_API_KEY || '',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
+  bagTokenAddress: process.env.BAG_TOKEN_ADDRESS || '',
+  minimumBagForUltimate: Number(process.env.MIN_BAG_REQUIRED || '10000'),
   cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || 'alphabag-cex-encryption-key-32ch',
 };
 

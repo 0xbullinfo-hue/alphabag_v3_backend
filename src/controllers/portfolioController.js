@@ -6,9 +6,11 @@ const NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 const CHAIN_KEYS = {
     ETH: 'ethereum',
+    BSC: 'bsc',
     POLYGON: 'polygon',
     BASE: 'base',
     ARB: 'arbitrum',
+    AVAX: 'avalanche',
 };
 
 const formatUnits = (value, decimals = 18) => {

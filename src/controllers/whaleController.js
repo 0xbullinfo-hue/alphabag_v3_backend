@@ -3,6 +3,8 @@ import { getOrSetCache } from '../utils/cache.js';
 
 const MORALIS_BASE = 'https://deep-index.moralis.io/api/v2';
 const CACHE_TTL = 60;
+const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
+const SUPPORTED_EVM_CHAIN_IDS = new Set([1, 56, 137, 42161, 43114, 8453]);
 
 const TRACKED_WHALE_WALLETS = {
   eth: [
@@ -37,6 +39,40 @@ function generateMockWhaleTransactions(chain = 'eth', count = 20) {
 }
 
 export const whaleController = {
+  async getAddressTransactions(req, res) {
+    const { address } = req.params;
+    const chainId = Number(req.query.chainId || 56);
+
+    if (!EVM_ADDRESS_PATTERN.test(address) || !SUPPORTED_EVM_CHAIN_IDS.has(chainId)) {
+      return res.status(400).json({ error: 'A valid EVM address and supported chainId are required' });
+    }
+
+    if (!process.env.MORALIS_API_KEY) {
+      return res.status(503).json({ error: 'Whale transaction data is not configured' });
+    }
+
+    try {
+      const chainHex = `0x${chainId.toString(16)}`;
+      const response = await axios.get(`${MORALIS_BASE}/${address}/erc20/transfers`, {
+        headers: { 'X-API-Key': process.env.MORALIS_API_KEY },
+        params: { chain: chainHex, order: 'DESC', limit: 20 },
+        timeout: 10000,
+      });
+      res.json((response.data.result || []).map((tx) => ({
+        hash: tx.transaction_hash,
+        from: tx.from_address,
+        to: tx.to_address,
+        value: (Number(tx.value) / Math.pow(10, Number(tx.token_decimals))).toFixed(4),
+        timeStamp: String(new Date(tx.block_timestamp).getTime() / 1000),
+        tokenSymbol: tx.token_symbol,
+        tokenDecimal: tx.token_decimals,
+      })));
+    } catch (error) {
+      console.error('[WhaleController] Address transactions error:', error.message);
+      res.status(502).json({ error: 'Unable to retrieve whale transaction data' });
+    }
+  },
+
   // GET /api/whales/transactions?chain=eth&limit=50
   async getTransactions(req, res) {
     try {
@@ -175,6 +211,7 @@ export const whaleController = {
 };
 
 export const getTopHolders = whaleController.getTopHolders;
+export const getAddressTransactions = whaleController.getAddressTransactions;
 export const followWhale = whaleController.followWhale;
 export const getTransactions = whaleController.getTransactions;
 export const getWallets = whaleController.getWallets;
