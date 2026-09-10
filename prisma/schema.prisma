@@ -77,6 +77,8 @@ model User {
   payoutRequests      T2EPayoutRequest[]
   submittedPairs      UserSubmittedPair[]
   cexConnections      CexConnection[]
+  whaleFollows        WhaleFollow[]
+  trades              Trade[]
 
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
@@ -189,7 +191,7 @@ model T2EMission {
   actionUrl    String?
   platform     String?  @default("SOCIAL")
   category     String?  @default("GENERAL")
-  status       String   @default("ACTIVE")    // ACTIVE | PAUSED | ARCHIVED
+  status       String   @default("ACTIVE")    // ACTIVE | Paused | ARCHIVED
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -327,4 +329,53 @@ model SystemConfig {
   updatedAt DateTime @updatedAt
 
   @@map("system_configs")
+}
+
+// ─── WHALE FOLLOWS (v3-fixes) ────────────────────────────────────────────────
+// Per-user tracked whale wallets. Persisted follows power the
+// cron/check_followed_whales.js alerting (previously a no-op stub).
+
+model WhaleFollow {
+  id            String    @id
+  userId        String
+  address       String
+  chain         String    @default("eth")
+  label         String?
+  threshold     Float     @default(0)          // min USD moved to trigger an alert
+  isActive      Boolean   @default(true)
+  lastSeenTx    String?
+  lastSeenBlock BigInt?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, address])
+  @@map("whale_follows")
+}
+
+// ─── TRADES (v3-fixes) ───────────────────────────────────────────────────────
+// Imported CEX (and later on-chain) trade history — the foundation for
+// cost-basis, realized/unrealized P&L, and performance analytics.
+// Idempotent import: `id` is deterministic (userId:exchangeId:tradeId).
+
+model Trade {
+  id           String   @id
+  userId       String
+  exchangeId   String?
+  chain        String?
+  symbol       String
+  side         String   // buy | sell
+  price        Float
+  amount       Float
+  cost         Float
+  fee          Float    @default(0)
+  feeCurrency  String?
+  timestamp    DateTime
+  tradeId      String?
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("trades")
 }

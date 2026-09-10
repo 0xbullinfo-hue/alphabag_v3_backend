@@ -22,3 +22,20 @@ npm-debug.log*
 Thumbs.db
 
 docs/
+# ── AlphaBAG V3 hygiene additions ─────────────────────────────
+# Real user data must NEVER be committed. Seeds stay tracked.
+data/*
+!data/*.seed.json
+
+# Build output
+dist/
+
+# Scratch / generated files
+tmp-*.html
+tree.txt
+*.log
+
+# Local env files
+.env
+.env.local
+

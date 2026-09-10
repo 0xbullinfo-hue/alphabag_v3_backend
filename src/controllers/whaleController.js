@@ -1,9 +1,19 @@
+// SPDX-License-Identifier: MIT
+// AlphaBAG V3 — Whale Controller (fixed)
+// Fixes vs. previous version:
+//   1. followWhale now PERSISTS to the `whale_follows` table (was a no-op stub
+//      returning success without saving, which starved the alert cron).
+//   2. New: GET /api/whales/follows and DELETE /api/whales/follow/:id.
+
 import axios from 'axios';
+import crypto from 'crypto';
 import { getOrSetCache } from '../utils/cache.js';
+import { store } from '../services/storeService.js';
 
 const MORALIS_BASE = 'https://deep-index.moralis.io/api/v2';
 const CACHE_TTL = 60;
 const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
+const SOLANA_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const SUPPORTED_EVM_CHAIN_IDS = new Set([1, 56, 137, 42161, 43114, 8453]);
 
 const TRACKED_WHALE_WALLETS = {
@@ -19,6 +29,9 @@ const TRACKED_WHALE_WALLETS = {
     '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1',
   ],
 };
+
+const isValidAddress = (address) =>
+    EVM_ADDRESS_PATTERN.test(address) || SOLANA_ADDRESS_PATTERN.test(address);
 
 export const whaleController = {
   async getAddressTransactions(req, res) {
@@ -65,7 +78,7 @@ export const whaleController = {
         const moralisKey = process.env.MORALIS_API_KEY;
         if (moralisKey && TRACKED_WHALE_WALLETS[chain]?.[0]) {
           try {
-            const response = await axios.get(`${MORALIS_BASE}/${chain}/address/${TRACKED_WHALE_WALLETS[chain][0]}/transactions`, {
+            const response = await axios.get(`${MORALIS_BASE}/${TRACKED_WHALE_WALLETS[chain][0]}/transactions`, {
               headers: { 'X-API-Key': moralisKey },
               params: { limit: Math.min(parseInt(limit, 10) || 50, 100) },
               timeout: 10000,
@@ -122,9 +135,9 @@ export const whaleController = {
         const moralisKey = process.env.MORALIS_API_KEY;
         if (moralisKey) {
           try {
-            const response = await axios.get(`${MORALIS_BASE}/${chain}/erc20/${tokenAddress}/transfers`, {
+            const response = await axios.get(`${MORALIS_BASE}/erc20/${tokenAddress}/transfers`, {
               headers: { 'X-API-Key': moralisKey },
-              params: { limit: 50 },
+              params: { chain: chain === 'bsc' ? '0x38' : '0x1', limit: 50 },
               timeout: 10000,
             });
             return response.data.result
@@ -182,15 +195,79 @@ export const whaleController = {
     res.json(result.data);
   },
 
+  // POST /api/whales/follow  { whaleAddress, chain, label, threshold }
+  // PERSISTS the follow so check_followed_whales.js can actually alert on it.
   async followWhale(req, res) {
-    const { whaleAddress } = req.body;
-    res.json({ success: true, message: `Now tracking ${whaleAddress}` });
-  }
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+      const { whaleAddress, chain = 'eth', label, threshold = 0 } = req.body || {};
+      if (!isValidAddress(whaleAddress || '')) {
+        return res.status(400).json({ error: 'A valid EVM or Solana whaleAddress is required' });
+      }
+
+      const existing = await store.findOne('whale_follows', { userId, address: whaleAddress });
+      if (existing) {
+        return res.status(200).json({ success: true, follow: existing, message: 'Already tracking this wallet' });
+      }
+
+      const follow = await store.create('whale_follows', {
+        id: 'wf_' + crypto.randomUUID(),
+        userId,
+        address: whaleAddress,
+        chain,
+        label: label || null,
+        threshold: Number(threshold) || 0,
+        isActive: true,
+        lastSeenTx: null,
+      });
+
+      res.status(201).json({ success: true, follow });
+    } catch (error) {
+      console.error('[WhaleController] Follow error:', error.message);
+      res.status(500).json({ error: 'Failed to save whale follow' });
+    }
+  },
+
+  // DELETE /api/whales/follow/:id
+  async unfollowWhale(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+      const follows = await store.read('whale_follows');
+      const follow = (follows || []).find((f) => f.id === req.params.id && f.userId === userId);
+      if (!follow) return res.status(404).json({ error: 'Follow not found' });
+
+      await store.write('whale_follows', follows.filter((f) => f.id !== follow.id));
+      res.status(204).end();
+    } catch (error) {
+      console.error('[WhaleController] Unfollow error:', error.message);
+      res.status(500).json({ error: 'Failed to remove whale follow' });
+    }
+  },
+
+  // GET /api/whales/follows — the current user's tracked whales
+  async getFollows(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+      const follows = (await store.read('whale_follows')).filter((f) => f.userId === userId);
+      res.json({ success: true, follows });
+    } catch (error) {
+      console.error('[WhaleController] Follows error:', error.message);
+      res.status(500).json({ error: 'Failed to fetch follows' });
+    }
+  },
 };
 
 export const getTopHolders = whaleController.getTopHolders;
 export const getAddressTransactions = whaleController.getAddressTransactions;
 export const followWhale = whaleController.followWhale;
+export const unfollowWhale = whaleController.unfollowWhale;
+export const getFollows = whaleController.getFollows;
 export const getTransactions = whaleController.getTransactions;
 export const getWallets = whaleController.getWallets;
 export const getTokenTransfers = whaleController.getTokenTransfers;
