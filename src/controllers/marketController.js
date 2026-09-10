@@ -48,3 +48,38 @@ export const searchCoins = async (req, res) => {
         res.status(500).json({ error: 'Search failed' });
     }
 };
+
+
+const marketDataCache = new NodeCache({ stdTTL: 30 });
+
+export const getCoinsMarkets = async (req, res) => {
+    const { vs_currency = 'usd', order = 'market_cap_desc', per_page = '100', page = '1', sparkline = 'false', price_change_percentage, ids } = req.query;
+    const cacheKey = `markets_${vs_currency}_${order}_${per_page}_${page}_${sparkline}_${price_change_percentage}_${ids || 'all'}`;
+
+    if (marketDataCache.has(cacheKey)) {
+        return res.json(marketDataCache.get(cacheKey));
+    }
+
+    try {
+        const params = {
+            vs_currency,
+            order,
+            per_page,
+            page,
+            sparkline,
+        };
+        if (price_change_percentage) params.price_change_percentage = price_change_percentage;
+        if (ids) params.ids = ids;
+
+        const response = await axios.get('https://api.coingecko.com/api/v3/coins/markets', {
+            params,
+            headers: process.env.COINGECKO_API_KEY ? { 'x-cg-pro-api-key': process.env.COINGECKO_API_KEY } : {}
+        });
+
+        marketDataCache.set(cacheKey, response.data);
+        res.json(response.data);
+    } catch (error) {
+        console.error(`[Market] coins/markets fetch failed: ${error.message}`);
+        res.status(error.response?.status || 500).json({ error: 'Failed to fetch coin markets' });
+    }
+};

@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { blockchainService } from '../services/blockchainService.js';
 import { getOrSetCache } from '../utils/cache.js';
 
@@ -13,6 +14,33 @@ const CHAIN_KEYS = {
     AVAX: 'avalanche',
 };
 
+
+const NATIVE_GECKO_IDS = {
+    ETH: 'ethereum',
+    POLYGON: 'matic-network',
+    BASE: 'ethereum',
+    ARB: 'ethereum',
+    BSC: 'binancecoin',
+    AVAX: 'avalanche-2'
+};
+
+async function fetchNativePrices() {
+    try {
+        const res = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
+            params: {
+                ids: 'ethereum,binancecoin,matic-network,avalanche-2',
+                vs_currencies: 'usd',
+                include_24hr_change: 'true'
+            },
+            timeout: 5000,
+            headers: process.env.COINGECKO_API_KEY ? { 'x-cg-pro-api-key': process.env.COINGECKO_API_KEY } : {}
+        });
+        return res.data || {};
+    } catch {
+        return {};
+    }
+}
+
 const formatUnits = (value, decimals = 18) => {
     try {
         const raw = BigInt(value || 0);
@@ -25,9 +53,14 @@ const formatUnits = (value, decimals = 18) => {
     }
 };
 
-const normalizeEvmBalances = (chains) => chains.flatMap((chain) => {
+const normalizeEvmBalances = (chains, prices = {}) => chains.flatMap((chain) => {
     const chainKey = CHAIN_KEYS[chain.chain];
     if (!chainKey) return [];
+
+    const geckoId = NATIVE_GECKO_IDS[chain.chain];
+    const priceUSD = prices[geckoId]?.usd || 0;
+    const change24h = prices[geckoId]?.usd_24h_change || 0;
+    const balanceNum = parseFloat(formatUnits(chain.nativeBalance)) || 0;
 
     const nativeToken = {
         contractAddress: NATIVE_TOKEN_ADDRESS,
@@ -35,9 +68,9 @@ const normalizeEvmBalances = (chains) => chains.flatMap((chain) => {
         name: chain.chainName,
         chain: chainKey,
         balance: formatUnits(chain.nativeBalance),
-        priceUSD: 0,
-        valueUSD: 0,
-        change24h: 0,
+        priceUSD,
+        valueUSD: balanceNum * priceUSD,
+        change24h,
     };
 
     const tokens = (chain.tokens || []).map((token) => ({
@@ -68,11 +101,14 @@ export const getBalances = async (req, res) => {
     try {
         // 30-second RAM cache to eliminate multi-chain API latency
         const result = await getOrSetCache(cacheKey, 30, async () => {
-            const balances = await blockchainService.getEvmBalances(address);
+            const [balances, prices] = await Promise.all([
+                blockchainService.getEvmBalances(address),
+                fetchNativePrices()
+            ]);
             const requestedChains = typeof chains === 'string'
                 ? new Set(chains.split(',').map((chain) => chain.trim()).filter(Boolean))
                 : null;
-            const tokens = normalizeEvmBalances(balances)
+            const tokens = normalizeEvmBalances(balances, prices)
                 .filter((token) => !requestedChains || requestedChains.has(token.chain));
 
             return { tokens, updatedAt: new Date().toISOString() };
@@ -119,9 +155,10 @@ export const streamPortfolio = (req, res) => {
 
     const sendUpdate = () => {
         const payload = JSON.stringify({
-            balances: [],
-            cexBalances: [],
+            status: 'CONNECTED',
+            active: true,
             timestamp: Date.now(),
+            message: 'Portfolio event stream established'
         });
         res.write(`data: ${payload}\n\n`);
     };
@@ -133,4 +170,20 @@ export const streamPortfolio = (req, res) => {
         clearInterval(interval);
         res.end();
     });
+};
+
+export const getSolanaPortfolio = async (req, res) => {
+    const { address } = req.query;
+    if (!address || typeof address !== 'string') {
+        return res.status(400).json({ error: 'Solana address is required' });
+    }
+    try {
+        const solBalances = await blockchainService.getSolanaBalances(address);
+        if (!solBalances) {
+            return res.status(500).json({ error: 'Failed to fetch Solana balances' });
+        }
+        res.json({ success: true, balances: solBalances });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 };

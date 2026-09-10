@@ -57,7 +57,12 @@ export const createConnection = async (req, res) => {
             });
         }
 
-        res.status(existing ? 200 : 201).json({ connection: toPublicConnection(connection) });
+        res.status(existing ? 200 : 201).json({
+            success: true,
+            verified: true,
+            connection: toPublicConnection(connection),
+            balances: balancesByCurrency
+        });
 
     } catch (error) {
         console.error(`[CEX] Connection failed: ${error.message}`);
@@ -117,4 +122,4 @@ export const getBalances = async (req, res) => {
     res.json({ balances, totalUSD: 0, updatedAt: new Date().toISOString() });
 };
 
-export const getBalance = createConnection;
+export const getBalance = getBalances;

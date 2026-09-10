@@ -256,9 +256,26 @@ export const claimPoints = async (req, res) => {
     }
 };
 
-export const submitWallet = [
-    ...validateSubmitWallet,
-    async (req, res) => {
+// === INPUT VALIDATION MIDDLEWARE ===
+export const validateSubmitWallet = [
+  body('bscWallet').optional().trim().isLength({ max: 42 }),
+  body('projectName').optional().trim().isLength({ max: 100 }),
+  body('projectTicker').optional().trim().matches(/^[A-Z0-9]{1,10}$/),
+  body('projectWebsite').optional().trim().isURL({ protocols: ['https', 'http'] }),
+  body('projectSocial').optional().trim().isURL({ protocols: ['https', 'http'] }),
+  body('projectLogo').optional().trim().isURL({ protocols: ['https', 'http'] }),
+  body('projectBanner').optional().trim().isURL({ protocols: ['https', 'http'] }),
+  body('projectManifesto').optional().trim().isLength({ max: 2000 }),
+  body('reviewComment').optional().trim().isLength({ max: 1000 }),
+];
+
+export const validateCompleteTask = [
+  body('taskId').trim().notEmpty().isLength({ max: 100 }),
+  body('taskLink').optional().trim().isURL({ protocols: ['https', 'http'] }).isLength({ max: 500 }),
+];
+
+
+export const submitWallet = async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ error: 'Invalid input', details: errors.array() });
@@ -330,8 +347,7 @@ export const submitWallet = [
             console.error("Airdrop Submit Error:", error);
             res.status(500).json({ error: 'Submission failed' });
         }
-    }
-];
+    };
 
 export const getAirdropStats = async (req, res) => {
     try {
@@ -445,24 +461,6 @@ export const deleteCampaign = async (req, res) => {
 };
 
 
-// === INPUT VALIDATION MIDDLEWARE ===
-export const validateSubmitWallet = [
-  body('bscWallet').optional().trim().isLength({ max: 42 }),
-  body('projectName').optional().trim().isLength({ max: 100 }),
-  body('projectTicker').optional().trim().matches(/^[A-Z0-9]{1,10}$/),
-  body('projectWebsite').optional().trim().isURL({ protocols: ['https', 'http'] }),
-  body('projectSocial').optional().trim().isURL({ protocols: ['https', 'http'] }),
-  body('projectLogo').optional().trim().isURL({ protocols: ['https', 'http'] }),
-  body('projectBanner').optional().trim().isURL({ protocols: ['https', 'http'] }),
-  body('projectManifesto').optional().trim().isLength({ max: 2000 }),
-  body('reviewComment').optional().trim().isLength({ max: 1000 }),
-];
-
-export const validateCompleteTask = [
-  body('taskId').trim().notEmpty().isLength({ max: 100 }),
-  body('taskLink').optional().trim().isURL({ protocols: ['https', 'http'] }).isLength({ max: 500 }),
-];
-
 export const getSubmittedWallets = async (req, res) => {
     try {
         const users = await store.read('users');
@@ -563,9 +561,7 @@ export const getTasks = async (req, res) => {
     }
 };
 
-export const completeTask = [
-    ...validateCompleteTask,
-    async (req, res) => {
+export const completeTask = async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ error: 'Invalid input', details: errors.array() });
@@ -660,8 +656,7 @@ export const completeTask = [
         } catch (error) {
             res.status(400).json({ error: error.message || 'Mission failure' });
         }
-    }
-];
+    };
 
 // --- SYNDICATE INTELLIGENCE (ADMIN) ---
 

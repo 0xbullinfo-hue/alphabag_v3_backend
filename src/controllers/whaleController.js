@@ -8,35 +8,17 @@ const SUPPORTED_EVM_CHAIN_IDS = new Set([1, 56, 137, 42161, 43114, 8453]);
 
 const TRACKED_WHALE_WALLETS = {
   eth: [
-    '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-    '0x8ba1f109551bD432803012645Hac136c82C3e8C9',
+    '0x28C6c06298d514Db089934071355E5743bf21d60',
+    '0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8',
   ],
   bsc: [
     '0x8894e0a0c962cb723c1976a4421c95949be2d4e3',
+    '0xF977814e90dA44bFA03b6295A0616a897441aceC',
   ],
   sol: [
-    'H8sMJSCg6X3s3v4j7v8w9x0y1z2a3b4c5d6e7f8g9h',
+    '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1',
   ],
 };
-
-function generateMockWhaleTransactions(chain = 'eth', count = 20) {
-  const symbols = { eth: 'ETH', bsc: 'BNB', sol: 'SOL', polygon: 'MATIC', base: 'ETH', arbitrum: 'ETH' };
-  const names = { eth: 'Ethereum', bsc: 'BNB Chain', sol: 'Solana', polygon: 'Polygon', base: 'Base', arbitrum: 'Arbitrum' };
-  const sym = symbols[chain.toLowerCase()] || 'ETH';
-  const name = names[chain.toLowerCase()] || 'Ethereum';
-
-  return Array.from({ length: count }, (_, i) => ({
-    id: `0x${Math.random().toString(16).substring(2, 42).padStart(40, '0')}`,
-    from: `0x${Math.random().toString(16).substring(2, 42).padStart(40, '0')}`,
-    to: `0x${Math.random().toString(16).substring(2, 42).padStart(40, '0')}`,
-    value: (Math.random() * 500 + 50).toFixed(4),
-    tokenSymbol: sym,
-    tokenName: name,
-    timestamp: new Date(Date.now() - i * 180000).toISOString(),
-    txHash: `0x${Math.random().toString(16).substring(2, 66).padStart(64, '0')}`,
-    chain,
-  }));
-}
 
 export const whaleController = {
   async getAddressTransactions(req, res) {
@@ -104,7 +86,7 @@ export const whaleController = {
           }
         }
 
-        return generateMockWhaleTransactions(chain, parseInt(limit, 10) || 50);
+        return [];
       });
 
       res.set('X-Cache', result.fromCache ? 'HIT' : 'MISS');
@@ -163,11 +145,7 @@ export const whaleController = {
           }
         }
 
-        return generateMockWhaleTransactions(chain, 20).map((tx) => ({
-          ...tx,
-          tokenSymbol: 'USDT',
-          tokenName: 'Tether USD',
-        }));
+        return [];
       });
 
       res.set('X-Cache', result.fromCache ? 'HIT' : 'MISS');

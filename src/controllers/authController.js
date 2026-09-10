@@ -288,8 +288,7 @@ export const verifyUpgrade = async (req, res) => {
                     args: [wallet],
                 });
                 const balanceFormatted = Number(formatUnits(balanceRaw, 18));
-                if (balanceFormatted >= 10000) isEligible = true;
-                            if (balanceFormatted >= config.minimumBagForUltimate) isEligible = true;
+                if (balanceFormatted >= config.minimumBagForUltimate) isEligible = true;
             } catch (rpcErr) {
                 console.error('[UPGRADE] RPC balance check failed:', rpcErr);
             }
@@ -298,8 +297,7 @@ export const verifyUpgrade = async (req, res) => {
         // Strict eligibility: requires verified on-chain token holding
 
         if (!isEligible) {
-            return res.status(403).json({ error: 'Insufficient $BAG balance. 10,000 $BAG required for ULTIMATE tier.' });
-                    return res.status(403).json({ error: `Insufficient $BAG balance. ${config.minimumBagForUltimate.toLocaleString()} $BAG required for ULTIMATE tier.` });
+            return res.status(403).json({ error: `Insufficient $BAG balance. ${config.minimumBagForUltimate.toLocaleString()} $BAG required for ULTIMATE tier.` });
         }
 
         const updatedUser = await store.updateById('users', userId, u => ({

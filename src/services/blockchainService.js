@@ -2,7 +2,7 @@
 import { Alchemy, Network } from 'alchemy-sdk';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { config } from '../config/env.js';
-import { createWalletClient, http, parseUnits } from 'viem';
+import { createWalletClient, createPublicClient, http, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { mainnet, bsc, polygon, base, arbitrum } from 'viem/chains';
 

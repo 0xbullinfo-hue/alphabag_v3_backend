@@ -1,16 +1,17 @@
 import express from 'express';
-import { getPrices, searchCoins } from '../controllers/marketController.js';
+import { getPrices, searchCoins, getCoinsMarkets } from '../controllers/marketController.js';
 import { tokenPriceController } from '../controllers/tokenPriceController.js';
 import { dexController } from '../controllers/dexController.js';
 import { getAddressTransactions, getTopHolders, followWhale, getTransactions, getWallets, getTokenTransfers } from '../controllers/whaleController.js';
 import { getBriefing, analyzePortfolio, streamNeuralCore } from '../controllers/aiController.js';
 import { getHistory, saveSnapshot } from '../controllers/historyController.js';
-import { getBalances, streamPortfolio } from '../controllers/portfolioController.js';
+import { getBalances, streamPortfolio, getSolanaPortfolio } from '../controllers/portfolioController.js';
 import { createConnection, deleteConnection, getBalances as getCexBalances, listConnections } from '../controllers/cexController.js';
 import { verifyToken } from '../middleware/authMiddleware.js';
 
 const marketRouter = express.Router();
 marketRouter.get('/prices', getPrices);
+marketRouter.get('/coins/markets', getCoinsMarkets);
 marketRouter.get('/search', searchCoins);
 marketRouter.get('/token-price', tokenPriceController.getTokenPrices);
 
@@ -35,6 +36,7 @@ const portfolioRouter = express.Router();
 portfolioRouter.get('/history', getHistory);
 portfolioRouter.get('/public-balances', getBalances);
 portfolioRouter.get('/balances', verifyToken, getBalances);
+portfolioRouter.get('/solana', getSolanaPortfolio);
 portfolioRouter.post('/snapshot', saveSnapshot);
 
 const streamRouter = express.Router();

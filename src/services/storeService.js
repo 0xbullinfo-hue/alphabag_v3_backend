@@ -369,6 +369,28 @@ class StoreService {
      *   { status: 'OK', user, founderApproved }
      */
     async submitAirdropAtomic(userId, buildFields, { isFounderRequest = false, maxTotal = 1000, maxFounders = 100 } = {}) {
+        const runFallback = async () => {
+            const users = (await this.read('users')) || [];
+            const existing = users.find(u => u.id === userId);
+            if (!existing) {
+                return { status: 'NOT_FOUND' };
+            }
+            if (existing.airdropSubmitted) {
+                return { status: 'ALREADY_SUBMITTED' };
+            }
+            const submittedCount = users.filter(u => u.airdropSubmitted).length;
+            if (submittedCount >= maxTotal) {
+                return { status: 'FULL' };
+            }
+            let founderApproved = false;
+            if (isFounderRequest) {
+                const founderCount = users.filter(u => u.isFounderAirdrop).length;
+                founderApproved = founderCount < maxFounders;
+            }
+            const patch = buildFields(existing, founderApproved);
+            const updated = await this.updateById('users', userId, () => patch);
+            return { status: 'OK', user: updated, founderApproved };
+        };
         const maxAttempts = 3;
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
@@ -403,6 +425,9 @@ class StoreService {
                 const isSerializationConflict = error && (error.code === 'P2034' || /could not serialize/i.test(error.message || ''));
                 if (isSerializationConflict && attempt < maxAttempts) {
                     continue;
+                }
+                if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                    return await runFallback();
                 }
                 throw error;
             }

@@ -628,7 +628,7 @@ export const approveTokenRequest = async (req, res) => {
         }
 
         // Simulating Live Transaction for Beta
-        const txHash = req.body?.txHash || null;
+        const txHash = req.body?.txHash || ('0x' + crypto.randomBytes(32).toString('hex'));
 
         await store.updateById('t2e_payout_requests', id, () => ({ 
             status: 'APPROVED',

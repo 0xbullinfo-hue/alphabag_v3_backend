@@ -18,12 +18,12 @@ const router = express.Router();
 router.get('/status', optionalAuth, getAirdropStatus);
 router.get('/stats', optionalAuth, getAirdropStats);
 router.post('/claim', verifyToken, claimPoints);
-router.post('/submit-wallet', verifyToken, submitWallet);
+router.post('/submit-wallet', verifyToken, validateSubmitWallet, submitWallet);
 router.post('/convert', verifyToken, convertItemsToBag);
 router.post('/payout', verifyToken, requestBagPayout);
 router.get('/tasks', optionalAuth, getMissions);
-router.post('/tasks/complete', verifyToken, completeTask);
-router.post('/complete-task', verifyToken, completeTask);
+router.post('/tasks/complete', verifyToken, validateCompleteTask, completeTask);
+router.post('/complete-task', verifyToken, validateCompleteTask, completeTask);
 
 // Admin Routes - Campaigns
 router.get('/admin/campaigns', verifyToken, verifyAdmin, getCampaigns);
