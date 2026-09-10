@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-// AlphaBAG V3 — Fix verification script (public endpoints; no auth needed)
+// AlphaBAG V3 � Fix verification script (public endpoints; no auth needed)
 // Usage: node scripts/verify-v3-fixes.js [baseUrl]
-const axios = require('axios');
+import axios from 'axios';
 
 const BASE = process.argv[2] || 'http://localhost:3003';
 const VITALIK = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
 
 let pass = 0, fail = 0;
 const check = (name, ok, extra = '') => {
-    console.log(`${ok ? '✅' : '❌'} ${name}${extra ? ` — ${extra}` : ''}`);
+    console.log(`${ok ? '?' : '?'} ${name}${extra ? ` � ${extra}` : ''}`);
     ok ? pass++ : fail++;
 };
 
@@ -28,7 +28,7 @@ const check = (name, ok, extra = '') => {
         check('totalUSD is a number', typeof total === 'number', `totalUSD=${total}`);
 
         // 3. DeFi endpoint (previously 404)
-        const defi = await axios.get(`${BASE}/api/portfolio/defi`, { timeout: 30000 }).catch((e) => e.response);
+        const defi = await axios.get(`${BASE}/api/portfolio/defi?address=${VITALIK}`, { timeout: 30000 }).catch((e) => e.response);
         check('GET /api/portfolio/defi', defi?.status === 200, `source=${defi?.data?.source || 'n/a'}`);
 
         // 4. SSE stream emits portfolio data (not just heartbeats)
@@ -40,7 +40,7 @@ const check = (name, ok, extra = '') => {
             const text = await res.text();
             check('SSE emits portfolio payload', /"type"\s*:\s*"portfolio"/.test(text));
         } else {
-            console.log('⏭  SSE stream check skipped — set VERIFY_JWT=<jwt> to test authed stream');
+            console.log('? SSE stream check skipped � set VERIFY_JWT=<jwt> to test authed stream');
         }
     } catch (e) {
         console.error('Verification error:', e.message);
