@@ -149,3 +149,9 @@ export const aiController = {
 };
 
 export default aiController;
+
+export const generateAnalysis = aiController.generateAnalysis;
+export const analyzePortfolio = aiController.generateAnalysis;
+export const generateBriefing = aiController.generateBriefing;
+export const getBriefing = aiController.generateBriefing;
+export const streamNeuralCore = aiController.streamNeuralCore;
