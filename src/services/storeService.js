@@ -1,4 +1,4 @@
-import pkg from '@prisma/client';
+﻿import pkg from '@prisma/client';
 const { PrismaClient, Prisma } = pkg;
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
@@ -203,14 +203,19 @@ class StoreService {
         }
     }
 
-    async findOne(collection, query) {
+    async findOne(collection, query = {}) {
+        let normalizedQuery = { ...query };
+        if (collection === 'users' && normalizedQuery.wallet && !normalizedQuery.verifiedWallet) {
+            normalizedQuery.verifiedWallet = normalizedQuery.wallet;
+            delete normalizedQuery.wallet;
+        }
         const modelName = collectionToModelMap[collection];
         if (modelName) {
             try {
                 const where = {};
-                for (const key of Object.keys(query)) {
-                    if (query[key] !== undefined) {
-                        where[key] = query[key];
+                for (const key of Object.keys(normalizedQuery)) {
+                    if (normalizedQuery[key] !== undefined) {
+                        where[key] = normalizedQuery[key];
                     }
                 }
                 return await prisma[modelName].findFirst({ where });
@@ -221,7 +226,7 @@ class StoreService {
         } else {
             const items = await this.read(collection);
             if (!Array.isArray(items)) return null;
-            return items.find(item => Object.keys(query).every(key => item[key] === query[key]));
+            return items.find(item => Object.keys(normalizedQuery).every(key => item[key] === normalizedQuery[key]));
         }
     }
 
@@ -233,6 +238,10 @@ class StoreService {
             if (modelName) {
                 try {
                     const data = { ...item };
+                    if (modelName === 'user' && data.wallet && !data.verifiedWallet) {
+                        data.verifiedWallet = data.wallet;
+                        delete data.wallet;
+                    }
                     if (data.createdAt) data.createdAt = new Date(data.createdAt);
                     else data.createdAt = new Date();
                     
@@ -358,7 +367,7 @@ class StoreService {
     /**
      * Atomically submit a user's airdrop entry, enforcing the global
      * submission cap and founder-spot cap inside a single Postgres
-     * SERIALIZABLE transaction — not just the in-process mutex used by
+     * SERIALIZABLE transaction â€” not just the in-process mutex used by
      * update()/updateById(). This closes a TOCTOU race where concurrent
      * requests could each read a stale count, all pass the "spots
      * remaining" check, and collectively overshoot the 1000/100 caps
@@ -422,7 +431,7 @@ class StoreService {
                 }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
             } catch (error) {
                 // Serialization failures (Prisma P2034) are expected under
-                // contention with SERIALIZABLE isolation — retry a few times
+                // contention with SERIALIZABLE isolation â€” retry a few times
                 // before giving up.
                 const isSerializationConflict = error && (error.code === 'P2034' || /could not serialize/i.test(error.message || ''));
                 if (isSerializationConflict && attempt < maxAttempts) {
@@ -438,3 +447,4 @@ class StoreService {
 }
 
 export const store = new StoreService();
+
