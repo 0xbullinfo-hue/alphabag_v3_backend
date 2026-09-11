@@ -13,6 +13,7 @@ class BlockchainService {
         // Initialize Alchemy for different networks
         this.alchemyInstances = {
             [Network.ETH_MAINNET]: new Alchemy({ apiKey, network: Network.ETH_MAINNET }),
+            [Network.BNB_MAINNET]: new Alchemy({ apiKey, network: Network.BNB_MAINNET }),
             [Network.MATIC_MAINNET]: new Alchemy({ apiKey, network: Network.MATIC_MAINNET }),
             [Network.ARB_MAINNET]: new Alchemy({ apiKey, network: Network.ARB_MAINNET }),
             [Network.BASE_MAINNET]: new Alchemy({ apiKey, network: Network.BASE_MAINNET }),
@@ -102,6 +103,7 @@ class BlockchainService {
     async getEvmBalances(address) {
         const chains = [
             { id: 'ETH', network: Network.ETH_MAINNET, name: 'Ethereum' },
+            { id: 'BSC', network: Network.BNB_MAINNET, name: 'BNB Chain' },
             { id: 'POLYGON', network: Network.MATIC_MAINNET, name: 'Polygon' },
             { id: 'BASE', network: Network.BASE_MAINNET, name: 'Base' },
             { id: 'ARB', network: Network.ARB_MAINNET, name: 'Arbitrum' }

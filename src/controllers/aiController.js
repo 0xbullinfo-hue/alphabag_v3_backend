@@ -96,6 +96,35 @@ export const aiController = {
     async generateBriefing(req, res) {
         try {
             if (!geminiKey()) return res.status(503).json({ error: 'AI briefing not configured' });
+
+            // NOTE: this handler's contract changed in the last patch round
+            // (from {assets, userMessage, tier} -> {briefing: string} to
+            // {marketData} -> {headline, summary, keyPoints}) but the
+            // frontend (CoinDetail.tsx's fetchAiInsight) was never updated
+            // to match. Every "AI Insight" request was silently falling
+            // through to CoinDetail's hardcoded filler text ("Market data
+            // is currently being calibrated...") because response.data
+            // .briefing was always undefined. This restores the legacy
+            // request/response shape when userMessage is present, while
+            // keeping the new marketData-briefing shape for any caller
+            // that already adopted it.
+            const { assets, userMessage, tier } = req.body || {};
+            if (typeof userMessage === 'string' && userMessage.trim().length > 0) {
+                const assetList = Array.isArray(assets) ? assets : [];
+                const assetsSummary = assetList.length
+                    ? assetList.map((a) => `${a.symbol}: ${a.amount}`).join(', ')
+                    : 'No assets provided';
+                const prompt = `You are AlphaAi, a professional crypto portfolio assistant.
+User Tier: ${tier || 'FREE'}.
+User Portfolio: ${assetsSummary}.
+User Query: "${userMessage.slice(0, 800)}"
+
+Reply with a short, helpful, plain-text answer (max 3 sentences). Do not wrap it in JSON.`;
+                const raw = await callGemini(prompt);
+                const briefing = (raw || '').trim() || 'Neural core failed to synthesize a response.';
+                return res.json({ briefing });
+            }
+
             const marketData = req.body;
             const prompt = `Generate a concise daily market briefing. Return ONLY valid JSON: {"headline":"...","summary":"...","keyPoints":["..."]}\n\nData:\n${JSON.stringify(marketData, null, 2)}`;
             const briefing = await generateWithRetry(prompt);
@@ -110,9 +139,38 @@ export const aiController = {
         try {
             if (!geminiKey()) return res.status(503).json({ error: 'Neural core not configured' });
 
+            // NOTE: same contract break as generateBriefing above — this
+            // used to accept {prompt, portfolio, tier} and stream raw text
+            // chunks the frontend appended directly to the chat bubble
+            // (useNeuralCore.ts). The last patch round switched to an
+            // OpenAI-style {messages: [...]} request and JSON-wrapped SSE
+            // `data: {"text": "..."}` events, but useNeuralCore.ts was
+            // never updated — every chat send hit `messages` being
+            // undefined, tripped the 400 "No user message provided", and
+            // every reply (had one arrived) would have rendered as the
+            // literal text `data: {"text": "..."}` in the chat bubble
+            // instead of being parsed. This accepts both request shapes
+            // and, for the legacy {prompt} shape, streams plain text
+            // chunks (no SSE framing) to match what useNeuralCore.ts
+            // actually decodes.
+            const legacyPrompt = typeof req.body?.prompt === 'string' ? req.body.prompt : null;
             const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-            const userMessage = messages.filter((m) => m.role === 'user').pop()?.content || '';
+            const userMessage = legacyPrompt || messages.filter((m) => m.role === 'user').pop()?.content || '';
             if (!userMessage) return res.status(400).json({ error: 'No user message provided' });
+
+            if (legacyPrompt !== null) {
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.setHeader('Transfer-Encoding', 'chunked');
+                try {
+                    const text = await callGemini(`${legacyPrompt} (Respond as AlphaAi in plain text, no markdown JSON.)`);
+                    res.write(text || 'Neural core failed to synthesize a response.');
+                } catch (e) {
+                    res.write('Neural Sync Error: ' + e.message);
+                } finally {
+                    res.end();
+                }
+                return;
+            }
 
             res.setHeader('Content-Type', 'text/event-stream');
             res.setHeader('Cache-Control', 'no-cache');
