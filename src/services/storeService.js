@@ -1,4 +1,4 @@
-﻿import pkg from '@prisma/client';
+import pkg from '@prisma/client';
 const { PrismaClient, Prisma } = pkg;
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
@@ -367,7 +367,7 @@ class StoreService {
     /**
      * Atomically submit a user's airdrop entry, enforcing the global
      * submission cap and founder-spot cap inside a single Postgres
-     * SERIALIZABLE transaction â€” not just the in-process mutex used by
+     * SERIALIZABLE transaction — not just the in-process mutex used by
      * update()/updateById(). This closes a TOCTOU race where concurrent
      * requests could each read a stale count, all pass the "spots
      * remaining" check, and collectively overshoot the 1000/100 caps
@@ -431,7 +431,7 @@ class StoreService {
                 }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
             } catch (error) {
                 // Serialization failures (Prisma P2034) are expected under
-                // contention with SERIALIZABLE isolation â€” retry a few times
+                // contention with SERIALIZABLE isolation — retry a few times
                 // before giving up.
                 const isSerializationConflict = error && (error.code === 'P2034' || /could not serialize/i.test(error.message || ''));
                 if (isSerializationConflict && attempt < maxAttempts) {

@@ -1,5 +1,5 @@
-﻿// SPDX-License-Identifier: MIT
-// PATCH: authController.js â€” Zero hardcoded wallets + full auth suite
+// SPDX-License-Identifier: MIT
+// PATCH: authController.js — Zero hardcoded wallets + full auth suite
 // Fixes:
 //   1. Removed ADMIN_WALLETS hardcoded array
 //   2. Admin status determined by database `admins` table ONLY
@@ -44,7 +44,7 @@ const isTrustedDevelopmentOrigin = (origin) => {
     }
 };
 
-// â”€â”€ Nonce Generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Nonce Generation ───────────────────────────────────────────────────────
 export const getNonce = async (req, res) => {
     try {
         const nonce = generateNonce();
@@ -63,7 +63,7 @@ export const getNonce = async (req, res) => {
     }
 };
 
-// â”€â”€ Standard SIWE Verification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Standard SIWE Verification ─────────────────────────────────────────────
 export const verify = async (req, res) => {
     try {
         const { message, signature } = req.body;
@@ -152,7 +152,24 @@ export const login = async (req, res) => {
     const isAdminPortal = portal === 'admin';
 
     if (!isAdminPortal) {
-        if (!config.isProduction) {
+        // SECURITY: this previously issued a fully-privileged, signed JWT
+        // (ULTIMATE tier, 15,000 BAG tokens, no admin flag but a real
+        // 7-day session) to ANY request hitting this endpoint whenever
+        // `!config.isProduction` — with NO credential check of any kind:
+        // no password, no wallet signature, nothing. config.isProduction
+        // is just `process.env.NODE_ENV === 'production'`, which many
+        // deployment platforms do not set automatically — if that
+        // variable is ever unset or misconfigured in a real, publicly
+        // reachable deployment (a very common real-world failure mode,
+        // not a hypothetical one), this becomes a complete, silent
+        // authentication bypass on the login endpoint itself. It also
+        // preserved whatever the caller sent as `email`, so it could be
+        // used to mint a session under an arbitrary email of the
+        // attacker's choosing. Requiring a second, explicit opt-in
+        // variable that a real deployment would never set by accident
+        // closes that gap while still letting local development skip
+        // wallet signing on purpose.
+        if (!config.isProduction && process.env.ALLOW_DEV_AUTH_BYPASS === 'true') {
             const devUser = {
                 id: 'demo-user-001',
                 email: email || 'alpha@alphabag.io',
@@ -183,7 +200,7 @@ export const login = async (req, res) => {
         return res.status(403).json({ error: 'Invalid credentials' });
     }
 
-        // â”€â”€ LOCAL ADMIN PREVIEW CREDENTIALS CHECK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── LOCAL ADMIN PREVIEW CREDENTIALS CHECK ────────────────────────────────
     if (
         !config.isProduction &&
         config.localAdminPreviewEmail &&
@@ -225,12 +242,27 @@ export const login = async (req, res) => {
     res.json({ token, user: { ...adminSafe, isAdmin: true } });
 };
 
-// â”€â”€ Get Current User â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Get Current User ───────────────────────────────────────────────────────
 export const getMe = async (req, res) => {
     try {
         let user = await store.findOne('users', { id: req.user.id }) || await store.findOne('users', { wallet: req.user.wallet });
         if (!user) {
-            if (!config.isProduction && req.user) {
+            // SECURITY: same class of bug as the login() bypass above —
+            // this fabricated a fully-privileged ULTIMATE user (15,000 BAG
+            // tokens, admin flag trusted straight from the caller's own
+            // JWT) for ANY request whose user id/wallet wasn't found in
+            // the database, gated only on the same fragile
+            // `!config.isProduction` check. A JWT for a deleted account,
+            // a stale token from a wiped dev database, or (in a
+            // misconfigured deployment where NODE_ENV isn't set to
+            // "production") literally any structurally-valid forged JWT
+            // would all resolve to a working ULTIMATE-tier identity
+            // instead of a 404. Gated behind the same explicit opt-in as
+            // login() now, and no longer trusts `isAdmin` from the token
+            // itself even in that dev-only path — admin status still
+            // comes from the `admins` table exclusively, per this file's
+            // own stated design.
+            if (!config.isProduction && process.env.ALLOW_DEV_AUTH_BYPASS === 'true' && req.user) {
                 const walletToCheck = (req.user.wallet || req.user.address || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045').toLowerCase();
                 user = {
                     id: req.user.id || 'demo-user-001',
@@ -239,7 +271,7 @@ export const getMe = async (req, res) => {
                     verifiedWallet: walletToCheck,
                     walletAddress: walletToCheck,
                     tier: req.user.tier || 'ULTIMATE',
-                    isAdmin: !!req.user.isAdmin,
+                    isAdmin: false,
                     bagTokens: 15000,
                     itemsBalance: 500,
                     totalEarned: 500,
@@ -254,7 +286,7 @@ export const getMe = async (req, res) => {
 
         const walletToCheck = (user.wallet || user.verifiedWallet || req.user.wallet || '').toLowerCase();
         const adminRecord = walletToCheck ? await store.findOne('admins', { wallet: walletToCheck }) : null;
-        const isAdmin = !!adminRecord || !!user.isAdmin;
+        const isAdmin = !!adminRecord;
 
         res.status(200).json({
             ...user,
@@ -357,7 +389,7 @@ export const verifyUpgrade = async (req, res) => {
     }
 };
 
-// â”€â”€ Admin Management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Admin Management ───────────────────────────────────────────────────────
 export const promoteToAdmin = async (req, res) => {
     try {
         const { wallet } = req.body;
