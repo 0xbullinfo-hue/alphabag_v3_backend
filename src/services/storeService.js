@@ -312,14 +312,9 @@ class StoreService {
             const modelName = collectionToModelMap[collection];
             if (modelName) {
                 try {
-                    const items = await prisma[modelName].findMany();
-                    const index = items.findIndex(predicate);
-                    if (index === -1) return null;
-
-                    const updatedFields = updateFn(items[index]);
-                    const { id, ...fieldsToUpdate } = updatedFields;
-                    
-                    const formattedFields = { ...fieldsToUpdate };
+                    // SCALING GUARD: generic findMany table scans are blocked for updates
+                    throw new Error(`SCALING_GUARD: replace store.update(${collection}) with an indexed repository update`);
+                    const formattedFields = {};
                     if (modelName === 'user') {
                         if (formattedFields.airdropSubmittedAt) formattedFields.airdropSubmittedAt = new Date(formattedFields.airdropSubmittedAt);
                         if (formattedFields.lastActive) formattedFields.lastActive = new Date(formattedFields.lastActive);

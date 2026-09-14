@@ -1,3 +1,36 @@
+
+const MORALIS_BASE = 'https://deep-index.moralis.io/api/v2';
+const CHAIN_HEX = {
+  ethereum: '0x1',
+  eth: '0x1',
+  bsc: '0x38',
+  polygon: '0x89',
+  arbitrum: '0xa4b1',
+  base: '0x2105',
+  avalanche: '0xa86a',
+};
+
+const CANONICAL_CHAINS = Object.keys(CHAIN_HEX);
+
+function normalizePosition(raw, chain, address) {
+  return {
+    id: `${chain}:${raw.protocol_id || raw.protocol || raw.address || raw.token_address || Math.random()}`,
+    walletAddress: address.toLowerCase(),
+    chain,
+    protocol: raw.protocol_name || raw.protocol || raw.project || 'Unknown',
+    protocolAddress: raw.protocol_address || raw.address || null,
+    positionType: raw.position_type || raw.type || 'UNKNOWN',
+    suppliedUsd: Number(raw.supplied_usd ?? raw.balance_usd ?? raw.value_usd ?? 0),
+    debtUsd: Number(raw.debt_usd ?? raw.borrowed_usd ?? 0),
+    netUsd: Number(raw.net_usd ?? ((raw.supplied_usd ?? raw.balance_usd ?? 0) - (raw.debt_usd ?? raw.borrowed_usd ?? 0))),
+    apy: raw.apy == null ? null : Number(raw.apy),
+    rewardsUsd: raw.rewards_usd == null ? null : Number(raw.rewards_usd),
+    healthFactor: raw.health_factor == null ? null : Number(raw.health_factor),
+    liquidationPrice: raw.liquidation_price == null ? null : Number(raw.liquidation_price),
+    source: 'moralis',
+    sourceUpdatedAt: new Date().toISOString(),
+  };
+}
 // SPDX-License-Identifier: MIT
 // AlphaBAG V3 — DeFi Controller (NEW)
 // GET /api/portfolio/defi
@@ -12,53 +45,49 @@ const MORALIS_BASE = 'https://deep-index.moralis.io/api/v2';
 const CHAIN_HEX = { eth: '0x1', bsc: '0x38', polygon: '0x89', arbitrum: '0xa4b1', base: '0x2105', avalanche: '0xa86a' };
 
 export const getDefiPositions = async (req, res) => {
-    const { address, chain = 'eth' } = req.query;
+    const { address, chains } = req.query;
+    if (!address) return res.status(400).json({ error: 'wallet address required' });
 
-    if (!address || typeof address !== 'string') {
-        return res.status(400).json({ error: 'address query parameter is required' });
-    }
+    const requestedChains = typeof chains === 'string'
+      ? chains.split(',').map(s => s.trim()).filter(c => CANONICAL_CHAINS.includes(c))
+      : CANONICAL_CHAINS;
 
-    // 1) Real positions via Moralis (requires key)
     const moralisKey = process.env.MORALIS_API_KEY;
     if (moralisKey) {
         try {
-            const { data } = await axios.get(`${MORALIS_BASE}/${address}/defi/positions`, {
-                headers: { 'X-API-Key': moralisKey },
-                params: { chain: CHAIN_HEX[chain] || '0x1' },
-                timeout: 15000,
-            });
+            const responses = await Promise.allSettled(
+              requestedChains.map(async chain => {
+                const { data } = await axios.get(`${MORALIS_BASE}/${address}/defi/positions`, {
+                  headers: { 'X-API-Key': moralisKey },
+                  params: { chain: CHAIN_HEX[chain] },
+                  timeout: 15000,
+                });
+                const rows = data.result || data.positions || data || [];
+                return Array.isArray(rows) ? rows.map(p => normalizePosition(p, chain, address)) : [];
+              })
+            );
+            const positions = responses.flatMap(r => r.status === 'fulfilled' ? r.value : []);
             return res.json({
                 success: true,
                 source: 'moralis',
-                positions: data.result || data.positions || data || [],
+                positions,
+                updatedAt: new Date().toISOString(),
             });
         } catch (error) {
-            console.warn(`[DeFi] Moralis positions failed: ${error.message} — falling back to opportunities`);
+            console.warn(`[DeFi] Moralis positions failed: ${error.message} - falling back to opportunities`);
         }
     }
 
-    // 2) Fallback: top yield opportunities (DeFiLlama) — keeps the page useful without a key
     try {
-        const result = await getOrSetCache('defi_opportunities_v1', 300, async () => {
-            const { data } = await axios.get('https://yields.llama.fi/pools', { timeout: 20000 });
-            return (data.data || [])
-                .filter((p) => p.tvlUsd > 10_000_000 && p.apy != null)
-                .sort((a, b) => b.tvlUsd - a.tvlUsd)
-                .slice(0, 50)
-                .map((p) => ({
-                    protocol: p.project,
-                    chain: p.chain,
-                    symbol: p.symbol,
-                    apy: p.apy,
-                    tvlUsd: p.tvlUsd,
-                    poolId: p.pool,
-                }));
+        const result = await fetchDefiOpportunities();
+        return res.json({
+          success: true,
+          source: 'defillama-opportunities',
+          positions: [],
+          opportunities: result?.data || [],
+          updatedAt: new Date().toISOString(),
         });
-
-        res.set('X-Cache', result.fromCache ? 'HIT' : 'MISS');
-        return res.json({ success: true, source: 'defillama-opportunities', positions: result.data });
-    } catch (error) {
-        console.error('[DeFi] DeFiLlama fallback failed:', error.message);
-        return res.status(502).json({ error: 'DeFi data unavailable' });
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to fetch DeFi data' });
     }
 };

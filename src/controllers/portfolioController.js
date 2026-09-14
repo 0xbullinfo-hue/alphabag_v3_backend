@@ -360,3 +360,35 @@ export const getSolanaPortfolio = async (req, res) => {
 
 // fetchNativePrices re-exported for backwards compatibility with any older imports
 export const fetchNativePrices = getNativePrices;
+
+
+export const getCanonicalPortfolio = async (req, res) => {
+    try {
+        const wallets = Array.isArray(req.user?.portfolioWallets) ? req.user.portfolioWallets : [];
+        const dexResults = await Promise.all(wallets
+            .filter(w => /^0x[a-fA-F0-9]{40}$/.test(w.address || ''))
+            .map(w => computeDexPortfolio(w.address)));
+
+        const cex = await fetchUserCexBalances(req.user?.id || '');
+        const dexTokens = dexResults.flatMap(r => r.tokens || []);
+        const dexUsd = dexResults.reduce((n, r) => n + (r.totalUSD || 0), 0);
+        const totalUSD = Number((dexUsd + (cex?.totalUSD || 0)).toFixed(2));
+
+        res.json({
+            success: true,
+            dex: { tokens: dexTokens, totalUSD: Number(dexUsd.toFixed(2)) },
+            defi: { positions: [], totalUSD: 0, debtUSD: 0 },
+            cex: { balances: cex?.balances || [], totalUSD: cex?.totalUSD || 0 },
+            totalUSD,
+            freshness: {
+                dex: Date.now(),
+                cex: Date.now(),
+                defi: null,
+            },
+            updatedAt: new Date().toISOString(),
+        });
+    } catch (error) {
+        console.error('[CanonicalPortfolio] failed:', error.message);
+        res.status(502).json({ error: 'Portfolio snapshot unavailable' });
+    }
+};

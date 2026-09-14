@@ -227,3 +227,24 @@ export const getTradeHistory = async (req, res) => {
         res.status(502).json({ error: `Could not fetch trade history from ${exchangeId}` });
     }
 };
+
+
+export const getAccountCoverage = async (req, res) => {
+    const connections = (await store.read('cex_connections')).filter(c => c.userId === req.user.id);
+    const accounts = [];
+    for (const connection of connections) {
+        const buckets = [];
+        try {
+            const exchange = exchangeFromConnection(connection);
+            const spot = await exchange.fetchBalance();
+            buckets.push({ accountType: 'SPOT', status: 'OK', balances: spot.total || {} });
+            for (const accountType of ['FUNDING', 'EARN', 'MARGIN', 'FUTURES', 'OPTIONS']) {
+                buckets.push({ accountType, status: 'NOT_IMPLEMENTED', balances: {} });
+            }
+        } catch (error) {
+            buckets.push({ accountType: 'SPOT', status: 'ERROR', error: 'SYNC_FAILED', balances: {} });
+        }
+        accounts.push({ connectionId: connection.id, exchangeId: connection.exchangeId, buckets });
+    }
+    res.json({ accounts, updatedAt: new Date().toISOString() });
+};

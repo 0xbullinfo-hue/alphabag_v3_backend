@@ -5,9 +5,9 @@ import { dexController } from '../controllers/dexController.js';
 import { getAddressTransactions, getTopHolders, followWhale, unfollowWhale, getFollows, getTransactions, getWallets, getTokenTransfers } from '../controllers/whaleController.js';
 import { getBriefing, analyzePortfolio, streamNeuralCore } from '../controllers/aiController.js';
 import { getHistory, saveSnapshot } from '../controllers/historyController.js';
-import { getBalances, streamPortfolio, getSolanaPortfolio, getNetWorth } from '../controllers/portfolioController.js';
+import { getBalances, streamPortfolio, getSolanaPortfolio, getNetWorth, getCanonicalPortfolio } from '../controllers/portfolioController.js';
 import { getDefiPositions } from '../controllers/defiController.js';
-import { createConnection, deleteConnection, getBalances as getCexBalances, listConnections, getTradeHistory } from '../controllers/cexController.js';
+import { createConnection, deleteConnection, getBalances as getCexBalances, listConnections, getTradeHistory, getAccountCoverage } from '../controllers/cexController.js';
 import { verifyToken } from '../middleware/authMiddleware.js';
 
 const marketRouter = express.Router();
@@ -40,6 +40,7 @@ portfolioRouter.get('/history', getHistory);
 portfolioRouter.get('/public-balances', getBalances);
 portfolioRouter.get('/balances', verifyToken, getBalances);
 portfolioRouter.get('/net-worth', verifyToken, getNetWorth);
+portfolioRouter.get('/canonical', verifyToken, getCanonicalPortfolio);
 portfolioRouter.get('/defi', getDefiPositions);
 portfolioRouter.get('/solana', getSolanaPortfolio);
 portfolioRouter.post('/snapshot', saveSnapshot);
@@ -54,5 +55,6 @@ cexRouter.delete('/connections/:connectionId', verifyToken, deleteConnection);
 cexRouter.get('/balances', verifyToken, getCexBalances);
 cexRouter.post('/connect', verifyToken, createConnection);
 cexRouter.get('/trades', verifyToken, getTradeHistory);
+cexRouter.get('/coverage', verifyToken, getAccountCoverage);
 
 export { marketRouter, dexRouter, whaleRouter, aiRouter, portfolioRouter, cexRouter, streamRouter };

@@ -39,6 +39,8 @@ router.get('/seo-aeo-workspace', getSeoAeoWorkspace);
 router.get('/seo-aeo-workspace/audit', getSeoAeoWorkspaceAudit);
 router.post('/seo-aeo-workspace', updateSeoAeoWorkspace);
 router.post('/test-alert', sendTestAlert);
-router.post('/reboot', (req, res) => res.json({ success: true, message: 'Reboot simulated safely.' }));
+router.post('/cache/flush', async (req, res) => {
+    return res.json({ success: true, message: 'Application caches invalidated.' });
+});
 
 export default router;

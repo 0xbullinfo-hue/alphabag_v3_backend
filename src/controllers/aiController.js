@@ -1,3 +1,4 @@
+import { looksLikeInjection, sanitizeOnchainText, buildFacts, validateGrounded } from '../utils/guardrails.js';
 // SPDX-License-Identifier: MIT
 // AlphaBAG V3 — AI Controller (fixed)
 // Fixes vs. previous version:
@@ -74,7 +75,19 @@ export const aiController = {
                 return res.status(503).json({ error: 'AI analysis not configured' });
             }
 
-            const portfolioData = req.body;
+            const portfolioData = req.user?.canonicalPortfolio || req.body;
+            for (const field of ['notes', 'label', 'description']) {
+              if (portfolioData[field] && looksLikeInjection(portfolioData[field])) {
+                return res.status(400).json({ error: 'Input rejected by prompt-injection filter' });
+              }
+            }
+            if (Array.isArray(portfolioData.tokens)) {
+              portfolioData.tokens = portfolioData.tokens.map((t) => ({
+                ...t,
+                name: sanitizeOnchainText(t.name || ''),
+                symbol: sanitizeOnchainText(t.symbol || ''),
+              }));
+            }
             if (!portfolioData || typeof portfolioData !== 'object') {
                 return res.status(400).json({ error: 'Portfolio data required' });
             }
