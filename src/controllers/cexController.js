@@ -55,20 +55,24 @@ export const buildPricedBalances = async (connection, response) => {
 
     let totalUSD = 0;
     const balances = raw.map(({ symbol, balance }) => {
-        const p = prices[symbol.toUpperCase()] || { usd: 0, usd_24h_change: 0 };
-        const valueUSD = balance * p.usd;
-        totalUSD += valueUSD;
+        const p = prices[symbol.toUpperCase()];
+        const priceUSD = p?.usd != null ? p.usd : null;
+        const valueUSD = priceUSD != null ? Number((balance * priceUSD).toFixed(2)) : null;
+        if (valueUSD != null) {
+            totalUSD += valueUSD;
+        }
         return {
             connectionId: connection.id,
             exchange: connection.exchangeId,
             symbol,
             name: symbol,
             balance: String(balance),
-            priceUSD: p.usd,
-            valueUSD: Number(valueUSD.toFixed(2)),
-            change24h: p.usd_24h_change,
+            priceUSD,
+            valueUSD,
+            valuationStatus: priceUSD != null ? 'VALUED' : 'UNAVAILABLE',
+            change24h: p?.usd_24h_change ?? null,
         };
-    }).sort((a, b) => b.valueUSD - a.valueUSD);
+    }).sort((a, b) => (b.valueUSD || 0) - (a.valueUSD || 0));
 
     return { balances, totalUSD: Number(totalUSD.toFixed(2)) };
 };

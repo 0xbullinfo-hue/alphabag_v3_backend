@@ -7,13 +7,13 @@ export function validateEnv() {
 
   if (missing.length > 0) {
     console.error(`[ENV] Missing required variables: ${missing.join(', ')}`);
-    if (process.env.NODE_ENV === 'production' || process.env.VITE_ENVIRONMENT === 'production') {
+    if (process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'production') {
       process.exit(1);
     }
   }
 
   // Production security checks
-  if (process.env.NODE_ENV === 'production' || process.env.VITE_ENVIRONMENT === 'production') {
+  if (process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'production') {
     const weakSecrets = [
       'your_jwt_secret_key_here',
       'alphabag-secret-key-change-in-prod-urgent',
@@ -50,7 +50,7 @@ export function validateEnv() {
 export const config = {
   port: parseInt(process.env.PORT || '3003', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
-  isProduction: process.env.NODE_ENV === 'production' || process.env.VITE_ENVIRONMENT === 'production',
+  isProduction: process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'production',
   jwtSecret: process.env.JWT_SECRET || 'alphabag-dev-secret-key-32chars-min!!',
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3005',
   dbUrl: process.env.DATABASE_URL || '',
