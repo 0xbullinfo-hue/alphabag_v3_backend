@@ -239,7 +239,7 @@ export const getAccountCoverage = async (req, res) => {
             const spot = await exchange.fetchBalance();
             buckets.push({ accountType: 'SPOT', status: 'OK', balances: spot.total || {} });
             for (const accountType of ['FUNDING', 'EARN', 'MARGIN', 'FUTURES', 'OPTIONS']) {
-                buckets.push({ accountType, status: 'NOT_IMPLEMENTED', balances: {} });
+                buckets.push({ accountType, status: 'UNSUPPORTED', balances: {} });
             }
         } catch (error) {
             buckets.push({ accountType: 'SPOT', status: 'ERROR', error: 'SYNC_FAILED', balances: {} });
@@ -247,4 +247,16 @@ export const getAccountCoverage = async (req, res) => {
         accounts.push({ connectionId: connection.id, exchangeId: connection.exchangeId, buckets });
     }
     res.json({ accounts, updatedAt: new Date().toISOString() });
+};
+
+
+export const getServerInfo = async (req, res) => {
+  const outboundIp = process.env.OUTBOUND_SERVER_IP || null;
+  res.json({
+    outboundIp,
+    requiresWhitelist: Boolean(outboundIp),
+    supportedAccounts: ['SPOT'],
+    unsupportedAccounts: ['FUNDING', 'EARN', 'MARGIN', 'FUTURES', 'OPTIONS'],
+    note: outboundIp ? 'Add this egress IP to your exchange API key allowlist' : 'No static outbound IP configured',
+  });
 };

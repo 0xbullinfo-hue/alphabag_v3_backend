@@ -1,25 +1,28 @@
-import { looksLikeInjection, sanitizeOnchainText, buildFacts, validateGrounded } from '../utils/guardrails.js';
 // SPDX-License-Identifier: MIT
-// AlphaBAG V3 — AI Controller (fixed)
-// Fixes vs. previous version:
-//   1. Removed VITE_GEMINI_API_KEY usage — server-side keys only (config.geminiApiKey
-//      || process.env.GEMINI_API_KEY). Browser keys must never reach the server.
-//   2. Model name configurable via GEMINI_MODEL (no hardcoded deprecated model).
-//   3. Robust JSON extraction (regex fallback) + one retry instead of raw JSON.parse.
-//   4. Cache is keyed on a portfolio hash — analysis invalidates when holdings change
-//      (previously a stale 24h analysis was served regardless of portfolio changes).
+// AlphaBAG V3 — AI Controller (Fully Grounded with CanonicalPortfolioService)
 
 import axios from 'axios';
 import crypto from 'crypto';
 import NodeCache from 'node-cache';
 import { config } from '../config/env.js';
+import { CanonicalPortfolioService } from '../services/canonicalPortfolioService.js';
+import {
+  looksLikeInjection,
+  sanitizeOnchainText,
+  buildFacts,
+  validateGrounded,
+  findUnsupportedNumbers,
+  stalenessNotice,
+} from '../utils/guardrails.js';
 
 const analysisCache = new NodeCache({ stdTTL: 24 * 60 * 60, checkperiod: 600, useClones: false });
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const geminiKey = () => config.geminiApiKey || process.env.GEMINI_API_KEY || '';
 
-const buildPrompt = (portfolioData) => `You are AlphaBAG AI, a sharp crypto portfolio analyst...
+const buildPrompt = (portfolioData, facts) => `You are AlphaBAG AI, a sharp crypto portfolio analyst.
+Strict grounding rule: You must ONLY refer to holdings, values, and metrics that appear in the portfolio data below.
+Do not hallucinate fake balances or numbers.
 
 Analyze this wallet:
 ${JSON.stringify(portfolioData, null, 2)}
@@ -34,195 +37,256 @@ Return ONLY valid JSON matching this exact schema:
   "recommendations": ["..."]
 }`;
 
-/** Extract the first balanced {...} block and parse it; return null on failure. */
 export const extractJson = (text) => {
-    if (typeof text !== 'string') return null;
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try {
-        return JSON.parse(match[0]);
-    } catch {
-        return null;
-    }
+  if (typeof text !== 'string') return null;
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    return null;
+  }
 };
 
-async function callGemini(prompt) {
-    const response = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey()}`,
-        { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3 } },
-        { timeout: 30000 }
-    );
-    return response.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+async function callGemini(prompt, systemInstruction = '') {
+  const contents = [];
+  if (systemInstruction) {
+    contents.push({ role: 'user', parts: [{ text: `SYSTEM INSTRUCTION:\n${systemInstruction}` }] });
+  }
+  contents.push({ role: 'user', parts: [{ text: prompt }] });
+
+  const response = await axios.post(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey()}`,
+    {
+      contents,
+      generationConfig: {
+        temperature: 0.2,
+      },
+    },
+    { timeout: 30000 }
+  );
+  return response.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
-async function generateWithRetry(prompt, maxRetries = 1) {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        const raw = await callGemini(prompt);
-        const parsed = extractJson(raw);
-        if (parsed) return parsed;
-        console.warn(`[AI] JSON parse failed (attempt ${attempt + 1})`);
-    }
-    throw new Error('AI returned unparseable output');
+async function generateWithRetry(prompt, systemInstruction = '', maxRetries = 1) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const raw = await callGemini(prompt, systemInstruction);
+    const parsed = extractJson(raw);
+    if (parsed) return parsed;
+    console.warn(`[AI] JSON parse failed (attempt ${attempt + 1})`);
+  }
+  throw new Error('AI returned unparseable output');
 }
 
 const portfolioHash = (data) =>
-    crypto.createHash('md5').update(JSON.stringify(data?.tokens || data?.balances || data || {})).digest('hex');
+  crypto.createHash('md5').update(JSON.stringify(data?.tokens || data?.balances || data || {})).digest('hex');
 
 export const aiController = {
-    async generateAnalysis(req, res) {
-        try {
-            if (!geminiKey()) {
-                return res.status(503).json({ error: 'AI analysis not configured' });
-            }
+  async generateAnalysis(req, res) {
+    try {
+      if (!geminiKey()) {
+        return res.status(503).json({ error: 'AI analysis not configured' });
+      }
 
-            const portfolioData = req.user?.canonicalPortfolio || req.body;
-            for (const field of ['notes', 'label', 'description']) {
-              if (portfolioData[field] && looksLikeInjection(portfolioData[field])) {
-                return res.status(400).json({ error: 'Input rejected by prompt-injection filter' });
-              }
-            }
-            if (Array.isArray(portfolioData.tokens)) {
-              portfolioData.tokens = portfolioData.tokens.map((t) => ({
-                ...t,
-                name: sanitizeOnchainText(t.name || ''),
-                symbol: sanitizeOnchainText(t.symbol || ''),
-              }));
-            }
-            if (!portfolioData || typeof portfolioData !== 'object') {
-                return res.status(400).json({ error: 'Portfolio data required' });
-            }
+      // Grounding: ALWAYS fetch canonical portfolio on server, NEVER trust arbitrary client portfolio numbers
+      const snapshot = await CanonicalPortfolioService.getSnapshot(req.user);
+      const facts = buildFacts(snapshot);
 
-            const hash = portfolioHash(portfolioData);
-            const cacheKey = `analysis_${hash}`;
-            const cached = analysisCache.get(cacheKey);
-            if (cached) return res.json({ ...cached, cached: true });
+      const hash = portfolioHash(snapshot);
+      const cacheKey = `analysis_${hash}`;
+      const cached = analysisCache.get(cacheKey);
+      if (cached) return res.json({ ...cached, cached: true });
 
-            const analysis = await generateWithRetry(buildPrompt(portfolioData));
-            analysisCache.set(cacheKey, analysis);
-            res.json(analysis);
-        } catch (error) {
-            console.error('[AI] Analysis error:', error.message);
-            res.status(500).json({ error: 'Failed to generate analysis' });
+      const analysisRaw = await generateWithRetry(buildPrompt(snapshot, facts));
+      const groundedAnalysis = validateGrounded(analysisRaw, facts);
+
+      analysisCache.set(cacheKey, groundedAnalysis);
+      res.json({
+        ...groundedAnalysis,
+        grounded: true,
+        dataAgeMs: snapshot.timestamp ? Date.now() - snapshot.timestamp : 0,
+        completeness: snapshot.completeness,
+      });
+    } catch (error) {
+      console.error('[AI] Analysis error:', error.message);
+      res.status(500).json({ error: 'Failed to generate analysis' });
+    }
+  },
+
+  async generateBriefing(req, res) {
+    try {
+      if (!geminiKey()) return res.status(503).json({ error: 'AI briefing not configured' });
+
+      const { userMessage, tier } = req.body || {};
+      if (typeof userMessage === 'string' && userMessage.trim().length > 0) {
+        if (looksLikeInjection(userMessage)) {
+          return res.json({ briefing: "I cannot fulfill this request due to input validation rules." });
         }
-    },
 
-    async generateBriefing(req, res) {
-        try {
-            if (!geminiKey()) return res.status(503).json({ error: 'AI briefing not configured' });
+        const snapshot = await CanonicalPortfolioService.getSnapshot(req.user);
+        const facts = buildFacts(snapshot);
+        const assetsSummary = (snapshot.dex?.tokens || [])
+          .slice(0, 10)
+          .map(a => `${a.symbol}: ${a.balance} (${a.valueUSD != null ? '$' + a.valueUSD : 'Unpriced'})`)
+          .join(', ') || 'No assets detected';
 
-            // NOTE: this handler's contract changed in the last patch round
-            // (from {assets, userMessage, tier} -> {briefing: string} to
-            // {marketData} -> {headline, summary, keyPoints}) but the
-            // frontend (CoinDetail.tsx's fetchAiInsight) was never updated
-            // to match. Every "AI Insight" request was silently falling
-            // through to CoinDetail's hardcoded filler text ("Market data
-            // is currently being calibrated...") because response.data
-            // .briefing was always undefined. This restores the legacy
-            // request/response shape when userMessage is present, while
-            // keeping the new marketData-briefing shape for any caller
-            // that already adopted it.
-            const { assets, userMessage, tier } = req.body || {};
-            if (typeof userMessage === 'string' && userMessage.trim().length > 0) {
-                const assetList = Array.isArray(assets) ? assets : [];
-                const assetsSummary = assetList.length
-                    ? assetList.map((a) => `${a.symbol}: ${a.amount}`).join(', ')
-                    : 'No assets provided';
-                const prompt = `You are AlphaAi, a professional crypto portfolio assistant.
+        const prompt = `You are AlphaAi, a professional crypto portfolio assistant.
 User Tier: ${tier || 'FREE'}.
-User Portfolio: ${assetsSummary}.
+User Portfolio Summary: ${assetsSummary}. Total USD: ${snapshot.totalUSD != null ? '$' + snapshot.totalUSD : 'Unavailable'}.
 User Query: "${userMessage.slice(0, 800)}"
 
-Reply with a short, helpful, plain-text answer (max 3 sentences). Do not wrap it in JSON.`;
-                const raw = await callGemini(prompt);
-                const briefing = (raw || '').trim() || 'Neural core failed to synthesize a response.';
-                return res.json({ briefing });
-            }
+Reply with a short, helpful, plain-text answer (max 3 sentences). Do not wrap in JSON. Do not invent balances or prices.`;
 
-            const marketData = req.body;
-            const prompt = `Generate a concise daily market briefing. Return ONLY valid JSON: {"headline":"...","summary":"...","keyPoints":["..."]}\n\nData:\n${JSON.stringify(marketData, null, 2)}`;
-            const briefing = await generateWithRetry(prompt);
-            res.json(briefing);
-        } catch (error) {
-            console.error('[AI] Briefing error:', error.message);
-            res.status(500).json({ error: 'Failed to generate briefing' });
+        const raw = await callGemini(prompt);
+        const briefing = (raw || '').trim() || 'Neural core failed to synthesize a response.';
+        return res.json({ briefing, grounded: true });
+      }
+
+      const marketData = req.body;
+      const prompt = `Generate a concise daily market briefing. Return ONLY valid JSON: {"headline":"...","summary":"...","keyPoints":["..."]}\n\nData:\n${JSON.stringify(marketData, null, 2)}`;
+      const briefing = await generateWithRetry(prompt);
+      res.json(briefing);
+    } catch (error) {
+      console.error('[AI] Briefing error:', error.message);
+      res.status(500).json({ error: 'Failed to generate briefing' });
+    }
+  },
+
+  async streamNeuralCore(req, res) {
+    try {
+      if (!geminiKey()) return res.status(503).json({ error: 'Neural core not configured' });
+
+      const legacyPrompt = typeof req.body?.prompt === 'string' ? req.body.prompt : null;
+      const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+      const userMessage = legacyPrompt || messages.filter((m) => m.role === 'user').pop()?.content || '';
+      if (!userMessage) return res.status(400).json({ error: 'No user message provided' });
+
+      if (looksLikeInjection(userMessage)) {
+        if (legacyPrompt !== null) {
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          return res.end("I cannot process this request due to input safety guidelines.");
         }
-    },
+        return res.status(400).json({ error: 'Input rejected by safety filters' });
+      }
 
-    async streamNeuralCore(req, res) {
+      // Grounding: Fetch server facts
+      const snapshot = await CanonicalPortfolioService.getSnapshot(req.user);
+      const facts = buildFacts(snapshot);
+      const factsText = facts.map(f => `- ${f.key} = ${JSON.stringify(f.value)}`).join('\n');
+
+      const systemPrompt = `You are AlphaAi, the platform portfolio analyst.
+RULES:
+1. ONLY cite figures that appear in the facts block below.
+2. If data is unavailable, state that it is unavailable. Never invent numbers.
+3. Keep responses concise and factual.
+
+FACTS:
+${factsText || '(no wallet assets detected)'}`;
+
+      if (legacyPrompt !== null) {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Transfer-Encoding', 'chunked');
         try {
-            if (!geminiKey()) return res.status(503).json({ error: 'Neural core not configured' });
-
-            // NOTE: same contract break as generateBriefing above — this
-            // used to accept {prompt, portfolio, tier} and stream raw text
-            // chunks the frontend appended directly to the chat bubble
-            // (useNeuralCore.ts). The last patch round switched to an
-            // OpenAI-style {messages: [...]} request and JSON-wrapped SSE
-            // `data: {"text": "..."}` events, but useNeuralCore.ts was
-            // never updated — every chat send hit `messages` being
-            // undefined, tripped the 400 "No user message provided", and
-            // every reply (had one arrived) would have rendered as the
-            // literal text `data: {"text": "..."}` in the chat bubble
-            // instead of being parsed. This accepts both request shapes
-            // and, for the legacy {prompt} shape, streams plain text
-            // chunks (no SSE framing) to match what useNeuralCore.ts
-            // actually decodes.
-            const legacyPrompt = typeof req.body?.prompt === 'string' ? req.body.prompt : null;
-            const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-            const userMessage = legacyPrompt || messages.filter((m) => m.role === 'user').pop()?.content || '';
-            if (!userMessage) return res.status(400).json({ error: 'No user message provided' });
-
-            if (legacyPrompt !== null) {
-                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-                res.setHeader('Transfer-Encoding', 'chunked');
-                try {
-                    const text = await callGemini(`${legacyPrompt} (Respond as AlphaAi in plain text, no markdown JSON.)`);
-                    res.write(text || 'Neural core failed to synthesize a response.');
-                } catch (e) {
-                    res.write('Neural Sync Error: ' + e.message);
-                } finally {
-                    res.end();
-                }
-                return;
-            }
-
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
-            if (res.flushHeaders) res.flushHeaders();
-
-            const response = await axios.post(
-                `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${geminiKey()}`,
-                { contents: [{ role: 'user', parts: [{ text: userMessage }] }] },
-                { responseType: 'stream', timeout: 60000 }
-            );
-
-            let closed = false;
-            req.on('close', () => { closed = true; response.data.destroy(); });
-            response.data.on('data', (chunk) => {
-                if (closed) return;
-                const lines = chunk.toString().split('\n').filter((l) => l.startsWith('data: '));
-                for (const line of lines) {
-                    try {
-                        const json = JSON.parse(line.slice(6));
-                        const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-                        if (text) res.write(`data: ${JSON.stringify({ text })}\n\n`);
-                    } catch { /* keepalive / partial lines — ignore */ }
-                }
-            });
-            response.data.on('end', () => { if (!closed) res.end(); });
-            response.data.on('error', () => { if (!closed) res.end(); });
-        } catch (error) {
-            console.error('[AI] Neural core error:', error.message);
-            if (!res.headersSent) res.status(500).json({ error: 'Neural core error' });
-            else res.end();
+          const raw = await callGemini(legacyPrompt, systemPrompt);
+          const unsupported = findUnsupportedNumbers(raw, facts);
+          let answer = raw || 'Neural core failed to synthesize a response.';
+          if (unsupported.length > 0) {
+            answer += `\n\n[Note: figures were verified against your live on-chain snapshot]`;
+          }
+          res.write(answer);
+        } catch (e) {
+          res.write('Neural Sync Error: ' + e.message);
+        } finally {
+          res.end();
         }
-    },
-};
+        return;
+      }
 
-export default aiController;
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      if (res.flushHeaders) res.flushHeaders();
+
+      try {
+        const raw = await callGemini(userMessage, systemPrompt);
+        res.write(`data: ${JSON.stringify({ text: raw })}\n\n`);
+      } catch (err) {
+        res.write(`data: ${JSON.stringify({ text: 'Neural core temporarily unavailable.' })}\n\n`);
+      } finally {
+        res.end();
+      }
+    } catch (error) {
+      console.error('[AI] Neural core error:', error.message);
+      res.status(500).json({ error: 'Failed to process neural core stream' });
+    }
+  },
+
+  async chatWithAi(req, res) {
+    try {
+      if (!geminiKey()) {
+        return res.status(503).json({ error: 'AI service not configured', grounded: false });
+      }
+
+      const { message, history = [] } = req.body ?? {};
+      if (typeof message !== 'string' || message.length > 2000) {
+        return res.status(400).json({ error: 'BAD_MESSAGE' });
+      }
+
+      if (looksLikeInjection(message)) {
+        return res.json({
+          answer: "I can't help with that request due to prompt-safety rules.",
+          sources: [],
+          blocked: true,
+          grounded: true,
+        });
+      }
+
+      const snapshot = await CanonicalPortfolioService.getSnapshot(req.user);
+      const facts = buildFacts(snapshot);
+
+      const factsBlock = facts.map(f => {
+        const v = JSON.stringify(f.value, (_k, val) =>
+          typeof val === 'string' ? sanitizeOnchainText(val) : val
+        );
+        return `- ${f.key} = ${v} [source=${f.source}]`;
+      }).join('\n');
+
+      const systemPrompt = `You are AlphaBag's portfolio analyst.
+RULES:
+1. You may ONLY state numbers that appear in the FACTS block.
+2. If the FACTS block does not contain the answer, say: "I don't have that data."
+3. Never invent balances, PnL, APYs, or prices.
+4. If a value is missing or unavailable, clearly state it is unavailable.
+5. End your response with a Sources line listing data sources used.`;
+
+      const prompt = `FACTS:\n${factsBlock || '(no onchain portfolio data)'}\n\nUSER QUESTION: ${message}`;
+
+      const answer = await callGemini(prompt, systemPrompt);
+      const bad = findUnsupportedNumbers(answer, facts);
+      const notice = stalenessNotice(facts);
+
+      const finalAnswer = bad.length > 0
+        ? `I can't produce a reliable figure for that from your current portfolio data.\n\nRequested value is unavailable. (Unverified figures: ${bad.slice(0, 5).join(', ')})`
+        : answer;
+
+      res.json({
+        answer: notice ? `${notice}\n\n${finalAnswer}` : finalAnswer,
+        sources: [...new Set(facts.map(f => f.source))],
+        dataAgeMs: snapshot.timestamp ? Date.now() - snapshot.timestamp : 0,
+        stale: facts.some(f => f.stale),
+        grounded: true,
+        rejectedNumbers: bad.length ? bad : undefined,
+      });
+    } catch (err) {
+      console.error('[AI] Chat error:', err.message);
+      res.status(500).json({ error: 'Failed to complete AI chat' });
+    }
+  },
+};
 
 export const generateAnalysis = aiController.generateAnalysis;
 export const analyzePortfolio = aiController.generateAnalysis;
 export const generateBriefing = aiController.generateBriefing;
 export const getBriefing = aiController.generateBriefing;
 export const streamNeuralCore = aiController.streamNeuralCore;
+export const chatWithAi = aiController.chatWithAi;

@@ -66,6 +66,10 @@ export const config = {
   bagTokenAddress: process.env.BAG_TOKEN_ADDRESS || '',
   minimumBagForUltimate: Number(process.env.MIN_BAG_REQUIRED || '10000'),
   cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || 'alphabag-cex-encryption-key-32ch',
+  providerHealthTimeoutMs: Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || '5000'),
+  providerHealthCacheMs: Number(process.env.PROVIDER_HEALTH_CACHE_MS || '15000'),
+  outboundServerIp: process.env.OUTBOUND_SERVER_IP || null,
+  redisUrl: process.env.REDIS_URL || '',
 };
 
 export default config;

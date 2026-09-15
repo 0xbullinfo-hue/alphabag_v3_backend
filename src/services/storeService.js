@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import pkg from '@prisma/client';
 const { PrismaClient, Prisma } = pkg;
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -233,7 +234,7 @@ class StoreService {
     async create(collection, item) {
         return this.lock(async () => {
             const modelName = collectionToModelMap[collection];
-            if (!item.id) item.id = Math.random().toString(36).substr(2, 9);
+            if (!item.id) item.id = crypto.randomUUID();
             
             if (modelName) {
                 try {

@@ -21,6 +21,7 @@ import publicRoutes from './routes/publicRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
 import { verifyToken, verifyAdmin } from './middleware/authMiddleware.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import providerHealthRoutes from './routes/providerHealthRoutes.js';
 
 const app = express();
 
@@ -136,6 +137,7 @@ app.use('/api/cex', cexRouter);
 app.use('/api/proxy', proxyRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api', publicRoutes);
+app.use('/api/system/health', providerHealthRoutes);
 
 if (!config.isProduction) {
   app.use('/api/admin-seed', adminSeedRoutes);

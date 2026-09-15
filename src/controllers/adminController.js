@@ -27,18 +27,40 @@ export const getSystemStats = async (req, res) => {
 };
 
 export const getUsers = async (req, res) => {
+    const page = Math.max(1, parseInt(req.query?.page || '1', 10));
+    const limit = Math.max(1, Math.min(100, parseInt(req.query?.limit || '50', 10)));
     const users = await store.read('users');
-    // Return safe user objects
-    const safeUsers = users.map(u => ({
+
+    // Return safe user objects with strike/ban and activity tracking
+    const safeUsers = (Array.isArray(users) ? users : []).map(u => ({
         id: u.id,
         email: u.email,
         tier: u.tier,
-        isAdmin: false,
+        isAdmin: Boolean(u.isAdmin),
         createdAt: u.createdAt,
         visits: u.visits,
         lastActive: u.lastActive,
-        location: u.location
+        location: u.location,
+        strikes: u.strikes || 0,
+        isBanned: Boolean(u.isBanned),
+        items: u.items || 0,
+        bagTokens: u.bagTokens || 0,
+        submittedWallet: u.submittedWallet || null,
     }));
+
+    if (req.query?.page !== undefined || req.query?.limit !== undefined) {
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedUsers = safeUsers.slice(startIndex, endIndex);
+        return res.json({
+            users: paginatedUsers,
+            total: safeUsers.length,
+            page,
+            limit,
+            totalPages: Math.ceil(safeUsers.length / limit),
+        });
+    }
+
     res.json(safeUsers);
 };
 
