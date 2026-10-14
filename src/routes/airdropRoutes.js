@@ -22,8 +22,8 @@ router.post('/submit-wallet', verifyToken, validateSubmitWallet, submitWallet);
 router.post('/convert', verifyToken, convertItemsToBag);
 router.post('/payout', verifyToken, requestBagPayout);
 router.get('/tasks', optionalAuth, getMissions);
-router.post('/tasks/complete', verifyToken, validateCompleteTask, completeTask);
-router.post('/complete-task', verifyToken, validateCompleteTask, completeTask);
+router.post('/tasks/complete', verifyToken, claimMission);
+router.post('/complete-task', verifyToken, claimMission);
 
 // Admin Routes - Campaigns
 router.get('/admin/campaigns', verifyToken, verifyAdmin, getCampaigns);

@@ -8,7 +8,50 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const t2eEmitter = new EventEmitter();
+import { config } from '../config/env.js';
+
+// Cooldown map to prevent automated economic spamming (F-08)
+const economicCooldowns = new Map();
+function checkEconomicRateLimit(userId, action = 'claim', cooldownMs = 3000) {
+    const key = `${userId}:${action}`;
+    const now = Date.now();
+    const last = economicCooldowns.get(key) || 0;
+    if (now - last < cooldownMs) {
+        return false;
+    }
+    economicCooldowns.set(key, now);
+    return true;
+}
+
+async function verifyEconomicCaptcha(req) {
+    const secret = process.env.CAPTCHA_SECRET_KEY;
+    if (!secret) {
+        if (config.isProduction) {
+            return { valid: false, error: 'CAPTCHA service is not configured on server', status: 503 };
+        }
+        return { valid: true };
+    }
+    const token = req.body?.captchaToken || req.headers['x-captcha-token'];
+    if (!token) {
+        return { valid: false, error: 'CAPTCHA token required for this action', status: 400 };
+    }
+    try {
+        const verifyUrl = process.env.CAPTCHA_VERIFY_URL || 'https://hcaptcha.com/siteverify';
+        const response = await fetch(verifyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ secret, response: token })
+        });
+        const data = await response.json();
+        return data.success ? { valid: true } : { valid: false, error: 'CAPTCHA verification failed', status: 400 };
+    } catch (err) {
+        console.error('[CAPTCHA] Verification error:', err);
+        return { valid: false, error: 'CAPTCHA service unreachable', status: 502 };
+    }
+}
+
 
 /**
  * IMPORTANT — claimMission race condition, partial mitigation only:
@@ -229,7 +272,7 @@ export const getMissions = async (req, res) => {
         });
     } catch (error) {
         console.error('[T2E] Fetch Missions Error:', error.stack || error);
-        res.status(500).json({ error: 'Failed to fetch missions', details: error.message });
+        res.status(500).json({ error: 'Failed to fetch missions', details: config.isProduction ? undefined : error.message });
     }
 };
 
@@ -255,7 +298,16 @@ export const streamActivity = (req, res) => {
 
     const sendEvent = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
     t2eEmitter.on('activityUpdate', sendEvent);
-    req.on('close', () => t2eEmitter.off('activityUpdate', sendEvent));
+
+    // Heartbeat ping every 25s to keep connection alive through proxies (F-22)
+    const pingInterval = setInterval(() => {
+        try { res.write(': ping\n\n'); } catch (_) {}
+    }, 25000);
+
+    req.on('close', () => {
+        clearInterval(pingInterval);
+        t2eEmitter.off('activityUpdate', sendEvent);
+    });
 };
 
 // ─── LEADERBOARD ──────────────────────────────────────────────────────────────
@@ -443,7 +495,7 @@ export const claimMission = async (req, res) => {
         });
     } catch (error) {
         console.error('[T2E] Claim Error:', error.stack || error);
-        res.status(500).json({ error: 'Mission claim failed', details: error.message });
+        res.status(500).json({ error: 'Mission claim failed', details: config.isProduction ? undefined : error.message });
     }
 };
 
@@ -529,9 +581,21 @@ export const adjustTreasuryBalance = async (req, res) => {
         const current = await store.findOne('t2e_config', { id: 'global_config' }) || { id: 'global_config', minimumClaimBalance: 500 };
         
         const data = { ...current };
-        if (minimumClaimBalance !== undefined) data.minimumClaimBalance = parseInt(minimumClaimBalance);
-        if (itemsToBagRate !== undefined) data.itemsToBagRate = itemsToBagRate;
-        if (campaignEnded !== undefined) data.campaignEnded = campaignEnded;
+        if (minimumClaimBalance !== undefined) {
+            const min = Number(minimumClaimBalance);
+            if (!Number.isFinite(min) || min < 0) {
+                return res.status(400).json({ error: 'minimumClaimBalance must be a non-negative finite number' });
+            }
+            data.minimumClaimBalance = min;
+        }
+        if (itemsToBagRate !== undefined) {
+            const rate = Number(itemsToBagRate);
+            if (!Number.isFinite(rate) || rate <= 0) {
+                return res.status(400).json({ error: 'itemsToBagRate must be a positive finite number' });
+            }
+            data.itemsToBagRate = rate;
+        }
+        if (campaignEnded !== undefined) data.campaignEnded = Boolean(campaignEnded);
 
         // Store config is likely an object or an array with one item based on write call
         await store.write('t2e_config', [data]); 
@@ -616,7 +680,7 @@ export const getAdminTokenRequests = async (req, res) => {
 export const approveTokenRequest = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body; // 'APPROVED' or 'REJECTED'
+        const { status } = req.body || {}; // 'APPROVED' or 'REJECTED'
 
         const request = await store.findOne('t2e_payout_requests', { id });
         if (!request) return res.status(404).json({ error: 'Request not found' });
@@ -627,8 +691,19 @@ export const approveTokenRequest = async (req, res) => {
             return res.json({ success: true, message: 'Request rejected' });
         }
 
-        // Simulating Live Transaction for Beta
-        const txHash = req.body?.txHash || ('0x' + crypto.randomBytes(32).toString('hex'));
+        // Validate transaction hash: require valid on-chain hash in production, reject invalid format if provided (F-02)
+        let txHash = req.body?.txHash;
+        if (txHash) {
+            if (typeof txHash !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+                return res.status(400).json({ error: 'A valid on-chain transaction hash is required to approve a payout.' });
+            }
+        } else {
+            if (config.isProduction) {
+                return res.status(400).json({ error: 'A valid on-chain transaction hash is required to approve a payout.' });
+            }
+            // In non-production testing environment when txHash is omitted:
+            txHash = '0x' + crypto.randomBytes(32).toString('hex');
+        }
 
         await store.updateById('t2e_payout_requests', id, () => ({ 
             status: 'APPROVED',
@@ -687,23 +762,27 @@ export const getAdminActivity = async (req, res) => {
 
 export const approveAllTokenRequests = async (req, res) => {
     try {
+        let txHash = req.body?.txHash;
+        if (txHash) {
+            if (typeof txHash !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+                return res.status(400).json({ error: 'A valid batch transaction hash is required to approve pending payouts.' });
+            }
+        } else if (config.isProduction) {
+            return res.status(400).json({ error: 'A valid batch transaction hash is required to approve pending payouts.' });
+        }
+
         const requests = await store.read('t2e_payout_requests') || [];
         let updatedCount = 0;
 
-        const updatedRequests = requests.map(r => {
+        for (const r of requests) {
             if (r.status === 'PENDING') {
                 updatedCount++;
-                return {
-                    ...r,
+                await store.updateById('t2e_payout_requests', r.id, () => ({
                     status: 'APPROVED',
-                    txHash: null, approvedAt: new Date().toISOString()
-                };
+                    txHash,
+                    approvedAt: new Date().toISOString()
+                }));
             }
-            return r;
-        });
-
-        if (updatedCount > 0) {
-            await store.write('t2e_payout_requests', updatedRequests);
         }
 
         res.json({ success: true, message: `Approved ${updatedCount} pending requests.` });

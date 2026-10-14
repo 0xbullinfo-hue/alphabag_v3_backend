@@ -79,9 +79,16 @@ export const getNetWorth = async (req, res) => {
 };
 
 export const streamPortfolio = async (req, res) => {
-  const rawToken = req.query.token || (req.headers['authorization']?.startsWith('Bearer ') ? req.headers['authorization'].split(' ')[1] : null);
+  const authHeader = req.headers['authorization'];
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const rawToken = bearerToken || req.query.token;
+
   if (!rawToken) {
     return res.status(401).json({ error: 'Token required for SSE portfolio connection' });
+  }
+
+  if (req.query.token && !bearerToken) {
+    console.warn('[Security] SSE token passed via URL query parameter is deprecated. Pass via Authorization header instead.');
   }
 
   let user;

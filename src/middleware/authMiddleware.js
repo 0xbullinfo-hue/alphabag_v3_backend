@@ -18,12 +18,17 @@ export const verifyToken = async (req, res, next) => {
     try {
         const decoded = jwt.verify(tokenValue, config.jwtSecret);
         
-        // Re-verify admin status from DB if wallet is present
+        // Re-verify admin status from DB (F-11)
         const wallet = (decoded.wallet || decoded.address || '').toLowerCase();
-        let isAdmin = !!decoded.isAdmin;
+        let isAdmin = false;
         if (wallet) {
             const adminRecord = await store.findOne('admins', { wallet });
             isAdmin = !!adminRecord;
+        } else if (decoded.email) {
+            const adminRecord = await store.findOne('admins', { email: decoded.email.toLowerCase() });
+            isAdmin = !!adminRecord;
+        } else {
+            isAdmin = !!decoded.isAdmin;
         }
 
         req.user = {

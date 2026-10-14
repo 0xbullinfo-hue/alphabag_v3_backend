@@ -47,9 +47,10 @@ const isTrustedDevelopmentOrigin = (origin) => {
 // ── Nonce Generation ───────────────────────────────────────────────────────
 export const getNonce = async (req, res) => {
     try {
+        const wallet = (req.query?.wallet || req.query?.address || '').toLowerCase();
         const nonce = generateNonce();
         const expiresAt = Date.now() + NONCE_EXPIRY_MS;
-        nonces.set(nonce, { expiresAt, used: false });
+        nonces.set(nonce, { expiresAt, used: false, wallet: wallet || null });
         if (nonces.size > 1000) {
             const now = Date.now();
             for (const [key, val] of nonces.entries()) {
@@ -224,13 +225,11 @@ export const login = async (req, res) => {
         });
     }
 
+    const DUMMY_HASH = '$2b$10$wK1WwZ69H2vX8c9L7J6S.uF7WJjR9f5hH3tZ8m9N0vB8y5K4q6J2e';
     const user = await store.findOne('admins', { email });
-    if (!user || !user.password) {
-        return res.status(400).json({ error: 'Invalid credentials' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
+    const targetHash = (user && user.password) ? user.password : DUMMY_HASH;
+    const isMatch = await bcrypt.compare(password || '', targetHash);
+    if (!user || !user.password || !isMatch) {
         return res.status(400).json({ error: 'Invalid credentials' });
     }
 
@@ -348,6 +347,7 @@ export const verifyUpgrade = async (req, res) => {
 
         const bagTokenAddress = config.bagTokenAddress || '0x0000000000000000000000000000000000000000';
         let isEligible = false;
+        let rpcError = null;
 
         if (bagTokenAddress !== '0x0000000000000000000000000000000000000000') {
             try {
@@ -361,11 +361,19 @@ export const verifyUpgrade = async (req, res) => {
                 if (balanceFormatted >= config.minimumBagForUltimate) isEligible = true;
             } catch (rpcErr) {
                 console.error('[UPGRADE] RPC balance check failed:', rpcErr);
+                rpcError = rpcErr;
             }
         }
 
-        // Strict eligibility: requires verified on-chain token holding
+        // F-23: Distinguish RPC communication errors from insufficient balance
+        if (rpcError) {
+            return res.status(503).json({
+                error: 'Unable to verify on-chain $BAG balance due to RPC node network timeout. Please retry in a moment.',
+                code: 'RPC_UNAVAILABLE'
+            });
+        }
 
+        // Strict eligibility: requires verified on-chain token holding
         if (!isEligible) {
             return res.status(403).json({ error: `Insufficient $BAG balance. ${config.minimumBagForUltimate.toLocaleString()} $BAG required for ULTIMATE tier.` });
         }
@@ -434,6 +442,11 @@ export const removeAdmin = async (req, res) => {
         const existing = await store.findOne('admins', { wallet: normalizedWallet });
         if (!existing) {
             return res.status(404).json({ error: 'Wallet is not an admin' });
+        }
+
+        const allAdmins = await store.findMany('admins', {});
+        if (allAdmins.length <= 1) {
+            return res.status(400).json({ error: 'Cannot remove the final admin. Permanent lockout protection.' });
         }
 
         await store.delete('admins', existing.id);

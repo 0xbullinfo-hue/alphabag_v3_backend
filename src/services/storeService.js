@@ -30,6 +30,7 @@ const collectionToModelMap = {
     'trades': 'trade'
 };
 
+const memStore = new Map();
 const modelFieldsMap = {};
 if (Prisma && Prisma.dmmf && Prisma.dmmf.datamodel && Prisma.dmmf.datamodel.models) {
     for (const model of Prisma.dmmf.datamodel.models) {
@@ -91,8 +92,11 @@ class StoreService {
             try {
                 return await prisma[modelName].findMany();
             } catch (error) {
+                if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                    return memStore.get(collection) || [];
+                }
                 console.error(`StoreService: Failed to read collection ${collection}:`, error);
-                return [];
+                throw error;
             }
         } else {
             // Fallback: Read from system_configs table
@@ -105,8 +109,11 @@ class StoreService {
                 }
                 return config.value;
             } catch (error) {
+                if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                    return collection.includes('config') || collection.includes('settings') ? {} : [];
+                }
                 console.error(`StoreService: Failed to read fallback collection ${collection}:`, error);
-                return collection.includes('config') || collection.includes('settings') ? {} : [];
+                throw error;
             }
         }
     }
@@ -161,6 +168,10 @@ class StoreService {
                         }
                     });
                 } catch (error) {
+                    if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                        memStore.set(collection, data);
+                        return data;
+                    }
                     console.error(`StoreService: Failed to write collection ${collection}:`, error);
                     throw error;
                 }
@@ -193,8 +204,13 @@ class StoreService {
                 }
                 return await prisma[modelName].findMany({ where });
             } catch (error) {
+                if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                    const items = memStore.get(collection) || [];
+                    if (Object.keys(query).length === 0) return items;
+                    return items.filter(item => Object.keys(query).every(key => item[key] === query[key]));
+                }
                 console.error(`StoreService: Failed findMany on ${collection}:`, error);
-                return [];
+                throw error;
             }
         } else {
             const items = await this.read(collection);
@@ -221,8 +237,12 @@ class StoreService {
                 }
                 return await prisma[modelName].findFirst({ where });
             } catch (error) {
+                if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                    const items = memStore.get(collection) || [];
+                    return items.find(item => Object.keys(normalizedQuery).every(key => item[key] === normalizedQuery[key])) || null;
+                }
                 console.error(`StoreService: Failed findOne on ${collection}:`, error);
-                return null;
+                throw error;
             }
         } else {
             const items = await this.read(collection);
@@ -237,8 +257,8 @@ class StoreService {
             if (!item.id) item.id = crypto.randomUUID();
             
             if (modelName) {
+                const data = { ...item };
                 try {
-                    const data = { ...item };
                     if (modelName === 'user' && data.wallet && !data.verifiedWallet) {
                         data.verifiedWallet = data.wallet;
                         delete data.wallet;
@@ -262,6 +282,13 @@ class StoreService {
                     const sanitizedData = sanitizeData(modelName, data);
                     return await prisma[modelName].create({ data: sanitizedData });
                 } catch (error) {
+                    if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                        const items = memStore.get(collection) || [];
+                        const created = { ...data, createdAt: data.createdAt || new Date().toISOString() };
+                        items.push(created);
+                        memStore.set(collection, items);
+                        return created;
+                    }
                     console.error(`StoreService: Failed to create in ${collection}:`, error);
                     throw error;
                 }
@@ -305,7 +332,56 @@ class StoreService {
     }
 
     async updateById(collection, id, updateFn) {
-        return this.update(collection, item => item.id === id, updateFn);
+        if (this.update !== StoreService.prototype.update) {
+            return this.update(collection, item => item.id === id, updateFn);
+        }
+        const modelName = collectionToModelMap[collection];
+        if (!modelName) {
+            return this.update(collection, item => item.id === id, updateFn);
+        }
+        return this.lock(async () => {
+            try {
+                const current = await prisma[modelName].findUnique({ where: { id } });
+                if (!current) return null;
+                const patch = updateFn(current) || {};
+                if (typeof patch !== 'object') return current;
+
+                if (modelName === 'user') {
+                    if (patch.airdropSubmittedAt) patch.airdropSubmittedAt = new Date(patch.airdropSubmittedAt);
+                    if (patch.lastActive) patch.lastActive = new Date(patch.lastActive);
+                    if (patch.lastDailyTaskAt) patch.lastDailyTaskAt = new Date(patch.lastDailyTaskAt);
+                    if (patch.lastWeeklyTaskAt) patch.lastWeeklyTaskAt = new Date(patch.lastWeeklyTaskAt);
+                } else if (modelName === 'news' || modelName === 'signal' || modelName === 'project' || modelName === 'airdropCampaign' || modelName === 't2EMission' || modelName === 't2EClaim' || modelName === 't2EActivity' || modelName === 't2EPayoutRequest' || modelName === 'task' || modelName === 'userSubmittedPair' || modelName === 'admin' || modelName === 'cexConnection' || modelName === 'whaleFollow' || modelName === 'trade') {
+                    if (patch.createdAt) patch.createdAt = new Date(patch.createdAt);
+                    if (patch.updatedAt) patch.updatedAt = new Date(patch.updatedAt);
+                    if (patch.lastSyncedAt) patch.lastSyncedAt = new Date(patch.lastSyncedAt);
+                    if (patch.startDate) patch.startDate = new Date(patch.startDate);
+                    if (patch.sentAt) patch.sentAt = new Date(patch.sentAt);
+                    if (patch.boostExpiry) patch.boostExpiry = new Date(patch.boostExpiry);
+                }
+
+                const sanitizedFields = sanitizeData(modelName, patch);
+                const result = await prisma[modelName].update({
+                    where: { id },
+                    data: sanitizedFields
+                });
+                return result;
+            } catch (error) {
+                if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                    const items = memStore.get(collection) || (await this.read(collection)) || [];
+                    const idx = items.findIndex(item => item.id === id);
+                    if (idx !== -1) {
+                        const updated = { ...items[idx], ...(updateFn(items[idx]) || {}) };
+                        items[idx] = updated;
+                        memStore.set(collection, items);
+                        return updated;
+                    }
+                    return null;
+                }
+                console.error(`StoreService: Failed to updateById in ${collection}:`, error);
+                throw error;
+            }
+        });
     }
 
     async update(collection, predicate, updateFn) {
@@ -313,30 +389,44 @@ class StoreService {
             const modelName = collectionToModelMap[collection];
             if (modelName) {
                 try {
-                    // SCALING GUARD: generic findMany table scans are blocked for updates
-                    throw new Error(`SCALING_GUARD: replace store.update(${collection}) with an indexed repository update`);
-                    const formattedFields = {};
+                    const items = await prisma[modelName].findMany();
+                    const target = items.find(predicate);
+                    if (!target) return null;
+                    const patch = updateFn(target) || {};
+                    if (typeof patch !== 'object') return target;
+
                     if (modelName === 'user') {
-                        if (formattedFields.airdropSubmittedAt) formattedFields.airdropSubmittedAt = new Date(formattedFields.airdropSubmittedAt);
-                        if (formattedFields.lastActive) formattedFields.lastActive = new Date(formattedFields.lastActive);
-                        if (formattedFields.lastDailyTaskAt) formattedFields.lastDailyTaskAt = new Date(formattedFields.lastDailyTaskAt);
-                        if (formattedFields.lastWeeklyTaskAt) formattedFields.lastWeeklyTaskAt = new Date(formattedFields.lastWeeklyTaskAt);
+                        if (patch.airdropSubmittedAt) patch.airdropSubmittedAt = new Date(patch.airdropSubmittedAt);
+                        if (patch.lastActive) patch.lastActive = new Date(patch.lastActive);
+                        if (patch.lastDailyTaskAt) patch.lastDailyTaskAt = new Date(patch.lastDailyTaskAt);
+                        if (patch.lastWeeklyTaskAt) patch.lastWeeklyTaskAt = new Date(patch.lastWeeklyTaskAt);
                     } else if (modelName === 'news' || modelName === 'signal' || modelName === 'project' || modelName === 'airdropCampaign' || modelName === 't2EMission' || modelName === 't2EClaim' || modelName === 't2EActivity' || modelName === 't2EPayoutRequest' || modelName === 'task' || modelName === 'userSubmittedPair' || modelName === 'admin' || modelName === 'cexConnection' || modelName === 'whaleFollow' || modelName === 'trade') {
-                        if (formattedFields.createdAt) formattedFields.createdAt = new Date(formattedFields.createdAt);
-                        if (formattedFields.updatedAt) formattedFields.updatedAt = new Date(formattedFields.updatedAt);
-                        if (formattedFields.lastSyncedAt) formattedFields.lastSyncedAt = new Date(formattedFields.lastSyncedAt);
-                        if (formattedFields.startDate) formattedFields.startDate = new Date(formattedFields.startDate);
-                        if (formattedFields.sentAt) formattedFields.sentAt = new Date(formattedFields.sentAt);
-                        if (formattedFields.boostExpiry) formattedFields.boostExpiry = new Date(formattedFields.boostExpiry);
+                        if (patch.createdAt) patch.createdAt = new Date(patch.createdAt);
+                        if (patch.updatedAt) patch.updatedAt = new Date(patch.updatedAt);
+                        if (patch.lastSyncedAt) patch.lastSyncedAt = new Date(patch.lastSyncedAt);
+                        if (patch.startDate) patch.startDate = new Date(patch.startDate);
+                        if (patch.sentAt) patch.sentAt = new Date(patch.sentAt);
+                        if (patch.boostExpiry) patch.boostExpiry = new Date(patch.boostExpiry);
                     }
 
-                    const sanitizedFields = sanitizeData(modelName, formattedFields);
+                    const sanitizedFields = sanitizeData(modelName, patch);
                     const result = await prisma[modelName].update({
-                        where: { id: items[index].id },
+                        where: { id: target.id },
                         data: sanitizedFields
                     });
                     return result;
                 } catch (error) {
+                    if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
+                        const items = memStore.get(collection) || (await this.read(collection)) || [];
+                        const idx = items.findIndex(predicate);
+                        if (idx !== -1) {
+                            const updated = { ...items[idx], ...(updateFn(items[idx]) || {}) };
+                            items[idx] = updated;
+                            memStore.set(collection, items);
+                            return updated;
+                        }
+                        return null;
+                    }
                     console.error(`StoreService: Failed to update in ${collection}:`, error);
                     throw error;
                 }

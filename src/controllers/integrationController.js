@@ -118,7 +118,7 @@ export const getApprovals = async (req, res) => {
 };
 
 export const proxyRpc = async (req, res) => {
-    const rpcUrl = config.rpcUrls[req.params.chain];
+    const rpcUrl = config.rpcUrls?.[req.params.chain];
     const requests = Array.isArray(req.body) ? req.body : [req.body];
 
     if (!rpcUrl) {

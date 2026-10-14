@@ -1,9 +1,14 @@
+import { config } from '../config/env.js';
+import { claimMission } from './t2eController.js';
 
 // === CAPTCHA VERIFICATION HELPER ===
 async function verifyCaptcha(token) {
-    if (!token) return false;
     const secret = process.env.CAPTCHA_SECRET_KEY;
-    if (!secret) return true; // Pass through if captcha is not configured in env
+    if (!secret) {
+        // Fail closed in production (F-08)
+        return config.isProduction ? false : true;
+    }
+    if (!token) return false;
     try {
         const verifyUrl = process.env.CAPTCHA_VERIFY_URL || 'https://hcaptcha.com/siteverify';
         const response = await fetch(verifyUrl, {
@@ -166,15 +171,35 @@ export const getAirdropStatus = async (req, res) => {
         res.json(response);
     } catch (error) {
         console.error('[AIRDROP] getAirdropStatus Error:', error.stack || error);
-        res.status(500).json({ error: 'Failed to fetch status', details: error.message });
+        res.status(500).json({ error: 'Failed to fetch status', details: config.isProduction ? undefined : error.message });
     }
 };
 
 
 // Claim Points (User)
+
+const claimPointsCooldowns = new Map();
+function checkClaimCooldown(userId) {
+    const now = Date.now();
+    const last = claimPointsCooldowns.get(userId) || 0;
+    if (now - last < 3000) return false;
+    claimPointsCooldowns.set(userId, now);
+    return true;
+}
+
 export const claimPoints = async (req, res) => {
     try {
         if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized' });
+
+        if (!checkClaimCooldown(req.user.id)) {
+            return res.status(429).json({ error: 'Too many claim attempts. Please wait a moment.' });
+        }
+
+        const captchaToken = req.body?.captchaToken || req.headers?.['x-captcha-token'];
+        const isCaptchaValid = await verifyCaptcha(captchaToken);
+        if (!isCaptchaValid) {
+            return res.status(400).json({ error: 'CAPTCHA verification failed or required' });
+        }
 
         let campaigns = await store.read('airdrop');
         if (!Array.isArray(campaigns)) campaigns = [];
@@ -252,7 +277,7 @@ export const claimPoints = async (req, res) => {
         if (error.message.includes('wait 24 hours')) {
             return res.status(400).json({ error: error.message });
         }
-        res.status(500).json({ error: 'Claim failed', details: error.message });
+        res.status(500).json({ error: 'Claim failed', details: config.isProduction ? undefined : error.message });
     }
 };
 
@@ -368,7 +393,7 @@ export const getAirdropStats = async (req, res) => {
         });
     } catch (error) {
         console.error('[AIRDROP] getAirdropStats Error:', error.stack || error);
-        res.status(500).json({ error: 'Failed to fetch stats', details: error.message });
+        res.status(500).json({ error: 'Failed to fetch stats', details: config.isProduction ? undefined : error.message });
     }
 };
 
@@ -415,7 +440,7 @@ export const createCampaign = async (req, res) => {
         res.json({ success: true, item: newCamp });
     } catch (error) {
         console.error('[AIRDROP] createCampaign Error:', error.stack || error);
-        res.status(500).json({ error: 'Failed to create campaign', details: error.message });
+        res.status(500).json({ error: 'Failed to create campaign', details: config.isProduction ? undefined : error.message });
     }
 };
 
@@ -441,7 +466,7 @@ export const updateCampaign = async (req, res) => {
         res.json({ success: true, item: updated });
     } catch (error) {
         console.error('[AIRDROP] updateCampaign Error:', error.stack || error);
-        res.status(500).json({ error: 'Failed to update campaign', details: error.message });
+        res.status(500).json({ error: 'Failed to update campaign', details: config.isProduction ? undefined : error.message });
     }
 };
 
@@ -561,7 +586,8 @@ export const getTasks = async (req, res) => {
     }
 };
 
-export const completeTask = async (req, res) => {
+export const completeTask = claimMission;
+const legacyCompleteTask = async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ error: 'Invalid input', details: errors.array() });
@@ -572,7 +598,7 @@ export const completeTask = async (req, res) => {
             if (!req.user || !req.user.id) return res.status(401).json({ error: 'Unauthorized' });
 
             // === CAPTCHA VERIFICATION ===
-            const captchaToken = req.body.captchaToken || req.headers['x-captcha-token'];
+            const captchaToken = req.body.captchaToken || req.headers?.['x-captcha-token'];
             if (process.env.CAPTCHA_SECRET_KEY) {
                 if (!captchaToken) {
                     return res.status(400).json({ error: 'CAPTCHA token required' });
@@ -952,7 +978,7 @@ export const convertItemsToBag = async (req, res) => {
         });
     } catch (error) {
         console.error('Convert ITEMS to BAG Error:', error);
-        res.status(500).json({ error: 'Conversion failed', details: error.message });
+        res.status(500).json({ error: 'Conversion failed', details: config.isProduction ? undefined : error.message });
     }
 };
 

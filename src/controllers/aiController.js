@@ -16,6 +16,34 @@ import {
 } from '../utils/guardrails.js';
 
 const analysisCache = new NodeCache({ stdTTL: 24 * 60 * 60, checkperiod: 600, useClones: false });
+const quotaCache = new NodeCache({ stdTTL: 24 * 60 * 60, checkperiod: 600, useClones: false });
+
+const TIER_DAILY_LIMITS = {
+  FREE: 50,
+  PRO: 500,
+  ULTIMATE: Infinity,
+};
+
+export const checkAndIncrementAiQuota = (user) => {
+  const tier = (user?.tier || (user?.isPro ? 'PRO' : 'FREE')).toUpperCase();
+  const limit = TIER_DAILY_LIMITS[tier] ?? TIER_DAILY_LIMITS.FREE;
+  if (!Number.isFinite(limit)) {
+    return { allowed: true, limit, remaining: Infinity, used: 0 };
+  }
+
+  const userId = user?.id || user?.wallet || user?.address || 'anonymous';
+  const today = new Date().toISOString().slice(0, 10);
+  const cacheKey = `ai_quota_${userId}_${today}`;
+
+  const currentUsage = quotaCache.get(cacheKey) || 0;
+  if (currentUsage >= limit) {
+    return { allowed: false, limit, remaining: 0, used: currentUsage };
+  }
+
+  const newUsage = currentUsage + 1;
+  quotaCache.set(cacheKey, newUsage);
+  return { allowed: true, limit, remaining: limit - newUsage, used: newUsage };
+};
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const geminiKey = () => config.geminiApiKey || process.env.GEMINI_API_KEY || '';
@@ -88,6 +116,18 @@ export const aiController = {
         return res.status(503).json({ error: 'AI analysis not configured' });
       }
 
+      const quota = checkAndIncrementAiQuota(req.user);
+      if (!quota.allowed) {
+        return res.status(429).json({
+          error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
+          code: 'AI_QUOTA_EXCEEDED',
+          limit: quota.limit,
+          used: quota.used,
+        });
+      }
+      res.setHeader('X-RateLimit-Limit', String(quota.limit));
+      res.setHeader('X-RateLimit-Remaining', String(quota.remaining));
+
       // Grounding: ALWAYS fetch canonical portfolio on server, NEVER trust arbitrary client portfolio numbers
       const snapshot = await CanonicalPortfolioService.getSnapshot(req.user);
       const facts = buildFacts(snapshot);
@@ -117,9 +157,38 @@ export const aiController = {
     try {
       if (!geminiKey()) return res.status(503).json({ error: 'AI briefing not configured' });
 
+      const quota = checkAndIncrementAiQuota(req.user);
+      if (!quota.allowed) {
+        return res.status(429).json({
+          error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
+          code: 'AI_QUOTA_EXCEEDED',
+          limit: quota.limit,
+          used: quota.used,
+        });
+      }
+      res.setHeader('X-RateLimit-Limit', String(quota.limit));
+      res.setHeader('X-RateLimit-Remaining', String(quota.remaining));
+
       const { userMessage, tier } = req.body || {};
       if (typeof userMessage === 'string' && userMessage.trim().length > 0) {
-        if (looksLikeInjection(userMessage)) {
+        const quota = checkAndIncrementAiQuota(req.user);
+      if (!quota.allowed) {
+        if (legacyPrompt !== null) {
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.status(429);
+          return res.end('Daily AI query limit reached for your tier. Upgrade for higher limits.');
+        }
+        return res.status(429).json({
+          error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
+          code: 'AI_QUOTA_EXCEEDED',
+          limit: quota.limit,
+          used: quota.used,
+        });
+      }
+      res.setHeader('X-RateLimit-Limit', String(quota.limit));
+      res.setHeader('X-RateLimit-Remaining', String(quota.remaining));
+
+      if (looksLikeInjection(userMessage)) {
           return res.json({ briefing: "I cannot fulfill this request due to input validation rules." });
         }
 
@@ -231,6 +300,18 @@ ${factsText || '(no wallet assets detected)'}`;
       if (typeof message !== 'string' || message.length > 2000) {
         return res.status(400).json({ error: 'BAD_MESSAGE' });
       }
+
+      const quota = checkAndIncrementAiQuota(req.user);
+      if (!quota.allowed) {
+        return res.status(429).json({
+          error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
+          code: 'AI_QUOTA_EXCEEDED',
+          limit: quota.limit,
+          used: quota.used,
+        });
+      }
+      res.setHeader('X-RateLimit-Limit', String(quota.limit));
+      res.setHeader('X-RateLimit-Remaining', String(quota.remaining));
 
       if (looksLikeInjection(message)) {
         return res.json({

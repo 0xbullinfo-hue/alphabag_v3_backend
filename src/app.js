@@ -12,6 +12,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config/env.js';
 import authRoutes from './routes/authRoutes.js';
 import t2eRoutes from './routes/t2eRoutes.js';
+import airdropRoutes from './routes/airdropRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import adminSeedRoutes from './routes/adminSeedRoutes.js';
 import { aiRouter, cexRouter, dexRouter, marketRouter, portfolioRouter, streamRouter, whaleRouter } from './routes/serviceRoutes.js';
@@ -123,6 +124,7 @@ app.get('/health', (req, res) => {
 // ── Routes ─────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/t2e', t2eRoutes);
+app.use('/api/airdrop', airdropRoutes);
 app.use('/api/admin', verifyToken, verifyAdmin, adminRoutes);
 app.use('/api/market', marketRouter);
 app.use('/api/config', configRouter);

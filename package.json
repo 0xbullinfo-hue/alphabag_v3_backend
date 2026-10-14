@@ -9,8 +9,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "validate": "node scripts/validate-openapi.js",
-    "test:contracts": "npm run prisma:generate && node --test --test-force-exit test/admin-contracts.test.js test/user-contracts.test.js test/production-integrity.test.js",
-    "test": "npm run prisma:generate && node --test --test-force-exit test/admin-contracts.test.js test/user-contracts.test.js test/production-integrity.test.js",
+    "test:contracts": "npm run prisma:generate && node --test --test-force-exit test/admin-contracts.test.js test/user-contracts.test.js test/production-integrity.test.js test/store-contracts.test.js",
+    "test": "npm run prisma:generate && node --test --test-force-exit test/admin-contracts.test.js test/user-contracts.test.js test/production-integrity.test.js test/store-contracts.test.js",
     "test:integrity": "node --test test/production-integrity.test.js"
   },
   "dependencies": {
@@ -20,7 +20,7 @@
     "@solana/web3.js": "^1.98.4",
     "ajv": "^8.12.0",
     "alchemy-sdk": "^3.6.5",
-    "axios": "1.6.7",
+    "axios": "^1.7.9",
     "bcryptjs": "^3.0.3",
     "ccxt": "^4.5.38",
     "cors": "^2.8.6",

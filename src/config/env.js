@@ -27,8 +27,8 @@ export function validateEnv() {
       process.exit(1);
     }
 
-    if (!process.env.CEX_ENCRYPTION_KEY || process.env.CEX_ENCRYPTION_KEY.length < 16) {
-      console.error('[ENV] FATAL: CEX_ENCRYPTION_KEY must be at least 16 characters');
+    if (!process.env.CEX_ENCRYPTION_KEY || !/^[a-fA-F0-9]{64}$/.test(process.env.CEX_ENCRYPTION_KEY)) {
+      console.error('[ENV] FATAL: CEX_ENCRYPTION_KEY must be a 64-character hexadecimal key (32 bytes AES-256)');
       process.exit(1);
     }
 
@@ -59,13 +59,21 @@ export const config = {
   localAdminPreviewEmail: process.env.LOCAL_ADMIN_PREVIEW_EMAIL || '',
   localAdminPreviewPassword: process.env.LOCAL_ADMIN_PREVIEW_PASSWORD || '',
   alchemyApiKey: process.env.ALCHEMY_API_KEY || '',
+  rpcUrls: {
+    ethereum: process.env.ETHEREUM_RPC_URL || (process.env.ALCHEMY_API_KEY ? `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : 'https://eth.llamarpc.com'),
+    bsc:      process.env.BSC_RPC_URL      || (process.env.ALCHEMY_API_KEY ? `https://bnb-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : 'https://binance.llamarpc.com'),
+    polygon:  process.env.POLYGON_RPC_URL  || (process.env.ALCHEMY_API_KEY ? `https://polygon-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : 'https://polygon.llamarpc.com'),
+    arbitrum: process.env.ARBITRUM_RPC_URL || (process.env.ALCHEMY_API_KEY ? `https://arb-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : 'https://arbitrum.llamarpc.com'),
+    base:     process.env.BASE_RPC_URL     || (process.env.ALCHEMY_API_KEY ? `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : 'https://base.llamarpc.com'),
+    avalanche: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
+  },
   covalentApiKey: process.env.COVALENT_API_KEY || '',
   coingeckoApiKey: process.env.COINGECKO_API_KEY || '',
   moralisApiKey: process.env.MORALIS_API_KEY || '',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   bagTokenAddress: process.env.BAG_TOKEN_ADDRESS || '',
   minimumBagForUltimate: Number(process.env.MIN_BAG_REQUIRED || '10000'),
-  cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || 'alphabag-cex-encryption-key-32ch',
+  cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
   providerHealthTimeoutMs: Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || '5000'),
   providerHealthCacheMs: Number(process.env.PROVIDER_HEALTH_CACHE_MS || '15000'),
   outboundServerIp: process.env.OUTBOUND_SERVER_IP || null,

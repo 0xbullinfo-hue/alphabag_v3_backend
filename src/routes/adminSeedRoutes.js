@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 // SPDX-License-Identifier: MIT
 // PATCH: adminSeedRoutes.js — Secure bootstrap for first admin
 // Usage: POST /api/admin-seed with { wallet: "0x...", secret: "SETUP_SECRET_FROM_ENV" }
@@ -37,7 +38,9 @@ router.post('/', async (req, res) => {
             return res.status(503).json({ error: 'Admin setup is not configured on this server.' });
         }
 
-        if (secret !== config.adminSetupSecret) {
+        const secretBuf = Buffer.from(String(secret));
+        const expectedBuf = Buffer.from(String(config.adminSetupSecret));
+        if (secretBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(secretBuf, expectedBuf)) {
             console.warn(`[SECURITY] Invalid admin setup attempt from ${req.ip}`);
             return res.status(401).json({ error: 'Invalid setup secret.' });
         }
