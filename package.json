@@ -9,8 +9,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "validate": "node scripts/validate-openapi.js",
-    "test:contracts": "npm run prisma:generate && node --import ./test/setup-env.js --test --test-force-exit test/env-fail-closed.test.js test/admin-contracts.test.js test/user-contracts.test.js test/production-integrity.test.js test/store-contracts.test.js",
-    "test": "npm run prisma:generate && node --import ./test/setup-env.js --test --test-force-exit test/env-fail-closed.test.js test/admin-contracts.test.js test/user-contracts.test.js test/production-integrity.test.js test/store-contracts.test.js",
+    "test:contracts": "npm run prisma:generate && node --import ./test/setup-env.js --test --test-force-exit test/env-fail-closed.test.js test/payout-verifier.test.js test/admin-contracts.test.js test/user-contracts.test.js test/production-integrity.test.js test/store-contracts.test.js",
+    "test": "npm run prisma:generate && node --import ./test/setup-env.js --test --test-force-exit test/env-fail-closed.test.js test/payout-verifier.test.js test/admin-contracts.test.js test/user-contracts.test.js test/production-integrity.test.js test/store-contracts.test.js",
     "test:integrity": "node --import ./test/setup-env.js --test test/production-integrity.test.js"
   },
   "dependencies": {

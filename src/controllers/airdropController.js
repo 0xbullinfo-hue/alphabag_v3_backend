@@ -1,5 +1,6 @@
 import { config } from '../config/env.js';
 import { claimMission } from './t2eController.js';
+import { isValidEvmAddress } from '../utils/address.js';
 
 // === CAPTCHA VERIFICATION HELPER ===
 async function verifyCaptcha(token) {
@@ -283,7 +284,7 @@ export const claimPoints = async (req, res) => {
 
 // === INPUT VALIDATION MIDDLEWARE ===
 export const validateSubmitWallet = [
-  body('bscWallet').optional().trim().isLength({ max: 42 }),
+  body('bscWallet').optional().trim().custom(isValidEvmAddress).withMessage('bscWallet must be a valid EVM address'),
   body('projectName').optional().trim().isLength({ max: 100 }),
   body('projectTicker').optional().trim().matches(/^[A-Z0-9]{1,10}$/),
   body('projectWebsite').optional().trim().isURL({ protocols: ['https', 'http'] }),

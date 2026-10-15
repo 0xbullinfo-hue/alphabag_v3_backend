@@ -11,6 +11,7 @@ const originalStoreMethods = {
     findOne: store.findOne,
     create: store.create,
     update: store.update,
+    prisma: store.prisma,
 };
 
 const createMockStore = (seed = {}) => {
@@ -47,6 +48,44 @@ const createMockStore = (seed = {}) => {
         return structuredClone(items[index]);
     };
 
+    store.prisma = {
+        $transaction: async (fn) => {
+            const tx = {
+                user: {
+                    findUnique: async ({ where }) => {
+                        const users = db.users || [];
+                        const u = users.find(x => x.id === where.id);
+                        return u ? structuredClone(u) : null;
+                    },
+                    update: async ({ where, data }) => {
+                        const users = db.users || [];
+                        const idx = users.findIndex(x => x.id === where.id);
+                        if (idx !== -1) {
+                            users[idx] = { ...users[idx], ...data };
+                            return structuredClone(users[idx]);
+                        }
+                        return null;
+                    }
+                },
+                t2EPayoutRequest: {
+                    findFirst: async ({ where }) => {
+                        const reqs = db.t2e_payout_requests || [];
+                        const r = reqs.find(x => x.userId === where.userId && (where.status ? x.status === where.status : true));
+                        return r ? structuredClone(r) : null;
+                    },
+                    create: async ({ data }) => {
+                        const reqs = db.t2e_payout_requests || [];
+                        const newReq = { ...data, id: data.id || `req-${reqs.length + 1}` };
+                        reqs.push(newReq);
+                        db.t2e_payout_requests = reqs;
+                        return structuredClone(newReq);
+                    }
+                }
+            };
+            return await fn(tx);
+        }
+    };
+
     return db;
 };
 
@@ -56,6 +95,7 @@ const restoreStore = () => {
     store.findOne = originalStoreMethods.findOne;
     store.create = originalStoreMethods.create;
     store.update = originalStoreMethods.update;
+    store.prisma = originalStoreMethods.prisma;
 };
 
 const createRes = () => {
@@ -88,7 +128,7 @@ test('submitWallet returns contract fields (success, message, bagTokens, items, 
     const req = {
         user: { id: 'user-1' },
         body: {
-            bscWallet: '0x1234',
+            bscWallet: '0x1234567890123456789012345678901234567890',
             xLink: 'https://x.com/example',
             reviewComment: 'Great app',
             isFounderRequest: false,
@@ -256,7 +296,7 @@ test('claimMission enforces DAILY frequency guard with documented error', async 
 
 test('requestBagPayout returns success contract and creates request entry', async () => {
     const db = createMockStore({
-        users: [{ id: 'user-1', items: 900, preferredWallet: '0xabc' }],
+        users: [{ id: 'user-1', items: 900, preferredWallet: '0x1234567890123456789012345678901234567890' }],
         t2e_config: [{ id: 'global_config', minimumClaimBalance: 500 }],
         t2e_payout_requests: [],
     });
@@ -277,7 +317,7 @@ test('requestBagPayout returns success contract and creates request entry', asyn
 
 test('requestBagPayout enforces minimum balance guard with documented error', async () => {
     createMockStore({
-        users: [{ id: 'user-1', items: 300, preferredWallet: '0xabc' }],
+        users: [{ id: 'user-1', items: 300, preferredWallet: '0x1234567890123456789012345678901234567890' }],
         t2e_config: [{ id: 'global_config', minimumClaimBalance: 500 }],
         t2e_payout_requests: [],
     });

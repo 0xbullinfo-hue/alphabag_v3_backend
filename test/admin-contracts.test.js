@@ -17,6 +17,7 @@ const originalStoreMethods = {
     write: store.write,
     findOne: store.findOne,
     update: store.update,
+    prisma: store.prisma,
 };
 
 const createMockStore = (seed = {}) => {
@@ -42,6 +43,53 @@ const createMockStore = (seed = {}) => {
         return structuredClone(items[index]);
     };
 
+    store.prisma = {
+        $transaction: async (fn) => {
+            const tx = {
+                t2EPayoutRequest: {
+                    findMany: async ({ where }) => {
+                        const items = db.t2e_payout_requests || [];
+                        return items.filter(x => (where.status ? x.status === where.status : true));
+                    },
+                    updateMany: async ({ where, data }) => {
+                        const items = db.t2e_payout_requests || [];
+                        let count = 0;
+                        for (let i = 0; i < items.length; i++) {
+                            if (!where.status || items[i].status === where.status) {
+                                items[i] = { ...items[i], ...data };
+                                count++;
+                            }
+                        }
+                        return { count };
+                    },
+                    update: async ({ where, data }) => {
+                        const items = db.t2e_payout_requests || [];
+                        const idx = items.findIndex(x => x.id === where.id);
+                        if (idx !== -1) {
+                            items[idx] = { ...items[idx], ...data };
+                            return items[idx];
+                        }
+                        return null;
+                    }
+                },
+                user: {
+                    update: async ({ where, data }) => {
+                        const users = db.users || [];
+                        const idx = users.findIndex(x => x.id === where.id);
+                        if (idx !== -1) {
+                            if (data.items?.increment) {
+                                users[idx].items = (Number(users[idx].items) || 0) + Number(data.items.increment);
+                            }
+                            return users[idx];
+                        }
+                        return null;
+                    }
+                }
+            };
+            return await fn(tx);
+        }
+    };
+
     return db;
 };
 
@@ -50,6 +98,7 @@ const restoreStore = () => {
     store.write = originalStoreMethods.write;
     store.findOne = originalStoreMethods.findOne;
     store.update = originalStoreMethods.update;
+    store.prisma = originalStoreMethods.prisma;
 };
 
 const createRes = () => {
@@ -134,7 +183,8 @@ test('approveTokenRequest supports both reject and approve response contracts', 
     });
 
     const approveRes = createRes();
-    await approveTokenRequest({ params: { id: 'req-2' }, body: { status: 'APPROVED' } }, approveRes);
+    const testHash = '0x' + 'b'.repeat(64);
+    await approveTokenRequest({ params: { id: 'req-2' }, body: { status: 'APPROVED', txHash: testHash } }, approveRes);
     assert.equal(approveRes.statusCode, 200);
     assert.equal(approveRes.body.success, true);
     assert.match(approveRes.body.txHash, /^0x[0-9a-f]+$/i);
@@ -183,7 +233,8 @@ test('approveAllTokenRequests, rejectBulkTokenRequests, and getStrikeLog preserv
     });
 
     const approveAllRes = createRes();
-    await approveAllTokenRequests({}, approveAllRes);
+    const validBatchHash = '0x' + 'a'.repeat(64);
+    await approveAllTokenRequests({ body: { txHash: validBatchHash } }, approveAllRes);
     assert.equal(approveAllRes.statusCode, 200);
     assert.equal(approveAllRes.body.success, true);
     assert.match(approveAllRes.body.message, /Approved 2 pending requests/i);
