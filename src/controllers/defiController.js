@@ -160,6 +160,6 @@ export const getDefiOpportunities = async (req, res) => {
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch DeFi opportunities' });
+    res.status(500).json({ success: false, opportunities: [], error: 'Failed to fetch DeFi opportunities' });
   }
 };
