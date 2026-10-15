@@ -93,7 +93,7 @@ export const streamPortfolio = async (req, res) => {
 
   let user;
   try {
-    user = jwt.verify(rawToken, config.jwtSecret);
+    user = jwt.verify(rawToken, config.jwtSecret, { algorithms: ['HS256'] });
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }

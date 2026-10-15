@@ -7,6 +7,7 @@
 //   4. Added removeAdmin() for admin revocation
 //   5. Preserved SIWE auth, referral tracking, and real on-chain upgrade verification
 
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { generateNonce, SiweMessage } from 'siwe';
@@ -14,6 +15,7 @@ import { createPublicClient, http, formatUnits } from 'viem';
 import { bsc } from 'viem/chains';
 import { store } from '../services/storeService.js';
 import { config } from '../config/env.js';
+import { isValidEvmAddress, normalizeAddress } from '../utils/address.js';
 
 const ERC20_BALANCE_ABI = [
     {
@@ -47,14 +49,18 @@ const isTrustedDevelopmentOrigin = (origin) => {
 // ── Nonce Generation ───────────────────────────────────────────────────────
 export const getNonce = async (req, res) => {
     try {
-        const wallet = (req.query?.wallet || req.query?.address || '').toLowerCase();
+        const rawWallet = req.query?.wallet || req.query?.address || req.body?.wallet;
+        if (!rawWallet || !isValidEvmAddress(rawWallet)) {
+            return res.status(400).json({ error: 'Valid wallet address is required to generate nonce' });
+        }
+        const wallet = normalizeAddress(rawWallet);
         const nonce = generateNonce();
         const expiresAt = Date.now() + NONCE_EXPIRY_MS;
-        nonces.set(nonce, { expiresAt, used: false, wallet: wallet || null });
-        if (nonces.size > 1000) {
+        nonces.set(nonce, { expiresAt, used: false, wallet });
+        if (nonces.size > 500) {
             const now = Date.now();
             for (const [key, val] of nonces.entries()) {
-                if (val.expiresAt < now) nonces.delete(key);
+                if (val.expiresAt < now || val.used) nonces.delete(key);
             }
         }
         res.status(200).json({ nonce });
@@ -106,6 +112,11 @@ export const verify = async (req, res) => {
             return res.status(400).json({ error: 'Nonce already used or expired' });
         }
 
+        if (nonceData.wallet && fields.address.toLowerCase() !== nonceData.wallet.toLowerCase()) {
+            nonces.delete(fields.nonce);
+            return res.status(400).json({ error: 'Nonce was issued for a different wallet address' });
+        }
+
         nonceData.used = true;
         nonces.delete(fields.nonce);
 
@@ -120,6 +131,7 @@ export const verify = async (req, res) => {
                 bagTokens: 0,
                 itemsBalance: 0,
                 totalEarned: 0,
+                tokenVersion: 0,
                 createdAt: new Date(),
                 updatedAt: new Date(),
             });
@@ -131,9 +143,10 @@ export const verify = async (req, res) => {
             wallet: fields.address.toLowerCase(),
             tier: user.tier,
             isAdmin: isAdmin,
+            tv: user.tokenVersion ?? 0,
         };
 
-        const token = jwt.sign(tokenPayload, config.jwtSecret, { expiresIn: '7d' });
+        const token = jwt.sign(tokenPayload, config.jwtSecret, { expiresIn: '7d', algorithm: 'HS256' });
 
         res.status(200).json({ token, user: tokenPayload });
     } catch (error) {
@@ -186,7 +199,7 @@ export const login = async (req, res) => {
                 onboardingComplete: true,
                 createdAt: new Date().toISOString()
             };
-            const token = jwt.sign(devUser, config.jwtSecret, { expiresIn: '7d' });
+            const token = jwt.sign(devUser, config.jwtSecret, { expiresIn: '7d', algorithm: 'HS256' });
             return res.json({ token, user: devUser });
         }
         return res.status(410).json({
@@ -197,7 +210,11 @@ export const login = async (req, res) => {
     if (!config.adminPortalKey) {
         return res.status(503).json({ error: 'Admin portal is not available.' });
     }
-    if (adminPortalKey !== config.adminPortalKey) {
+
+    // Timing-safe comparison of adminPortalKey to prevent timing attacks
+    const providedKeyHash = crypto.createHash('sha256').update(String(adminPortalKey || '')).digest();
+    const actualKeyHash = crypto.createHash('sha256').update(String(config.adminPortalKey)).digest();
+    if (!crypto.timingSafeEqual(providedKeyHash, actualKeyHash)) {
         return res.status(403).json({ error: 'Invalid credentials' });
     }
 
@@ -206,13 +223,13 @@ export const login = async (req, res) => {
         !config.isProduction &&
         config.localAdminPreviewEmail &&
         config.localAdminPreviewPassword &&
-        email?.toLowerCase() === config.localAdminPreviewEmail.toLowerCase() &&
+        email?.toLowerCase().trim() === config.localAdminPreviewEmail.toLowerCase().trim() &&
         password === config.localAdminPreviewPassword
     ) {
         const token = jwt.sign(
-            { id: 'admin-preview', email: config.localAdminPreviewEmail, isAdmin: true },
+            { id: 'admin-preview', email: config.localAdminPreviewEmail, isAdmin: true, tv: 0 },
             config.jwtSecret,
-            { expiresIn: '24h' }
+            { expiresIn: '24h', algorithm: 'HS256' }
         );
         return res.json({
             token,
@@ -226,7 +243,8 @@ export const login = async (req, res) => {
     }
 
     const DUMMY_HASH = '$2b$10$wK1WwZ69H2vX8c9L7J6S.uF7WJjR9f5hH3tZ8m9N0vB8y5K4q6J2e';
-    const user = await store.findOne('admins', { email });
+    const normalizedEmail = (email || '').toLowerCase().trim();
+    const user = await store.findOne('admins', { email: normalizedEmail });
     const targetHash = (user && user.password) ? user.password : DUMMY_HASH;
     const isMatch = await bcrypt.compare(password || '', targetHash);
     if (!user || !user.password || !isMatch) {
@@ -237,7 +255,11 @@ export const login = async (req, res) => {
         updatedAt: new Date().toISOString()
     }));
     const { password: _, ...adminSafe } = updatedAdmin || user;
-    const token = jwt.sign({ id: adminSafe.id, email: adminSafe.email, isAdmin: true }, config.jwtSecret, { expiresIn: '24h' });
+    const token = jwt.sign(
+        { id: adminSafe.id, email: adminSafe.email, isAdmin: true, tv: adminSafe.tokenVersion ?? 0 },
+        config.jwtSecret,
+        { expiresIn: '24h', algorithm: 'HS256' }
+    );
     res.json({ token, user: { ...adminSafe, isAdmin: true } });
 };
 
@@ -387,8 +409,9 @@ export const verifyUpgrade = async (req, res) => {
             id: updatedUser.id, 
             wallet: updatedUser.wallet,
             tier: 'ULTIMATE',
-            isAdmin: updatedUser.isAdmin 
-        }, config.jwtSecret, { expiresIn: '7d' });
+            isAdmin: updatedUser.isAdmin,
+            tv: updatedUser.tokenVersion ?? 0,
+        }, config.jwtSecret, { expiresIn: '7d', algorithm: 'HS256' });
 
         res.json({ success: true, user: updatedUser, token });
     } catch (error) {

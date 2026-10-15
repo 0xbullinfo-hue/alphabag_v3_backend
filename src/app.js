@@ -26,6 +26,8 @@ import providerHealthRoutes from './routes/providerHealthRoutes.js';
 
 const app = express();
 
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
+
 // ── Security Headers ─────────────────────────────────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: {
@@ -84,6 +86,36 @@ const authLimiter = rateLimit({
   standardHeaders: true, legacyHeaders: false,
 });
 
+const nonceLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 50,
+  message: { error: 'Too many nonce requests, please try again later.' },
+  standardHeaders: true, legacyHeaders: false,
+});
+
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 20,
+  message: { error: 'Too many verification attempts, please try again later.' },
+  standardHeaders: true, legacyHeaders: false,
+});
+
+const leaderboardLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 60,
+  message: { error: 'Too many leaderboard requests, please try again shortly.' },
+  standardHeaders: true, legacyHeaders: false,
+});
+
+const proxyLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 60,
+  message: { error: 'Too many proxy requests, please try again shortly.' },
+  standardHeaders: true, legacyHeaders: false,
+});
+
+const rpcLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 100,
+  message: { error: 'Too many RPC requests, please try again shortly.' },
+  standardHeaders: true, legacyHeaders: false,
+});
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 300,
   message: { error: 'Too many requests, please try again later.' },
@@ -110,11 +142,17 @@ const seedLimiter = rateLimit({
   standardHeaders: true, legacyHeaders: false,
 });
 
+// Dedicated route limiters before general limiters
+app.use('/api/auth/nonce', nonceLimiter);
+app.use('/api/auth/verify', verifyLimiter);
 app.use('/api/auth', authLimiter);
-app.use('/api', apiLimiter);
+app.use('/api/t2e/leaderboard', leaderboardLimiter);
+app.use('/api/proxy', proxyLimiter);
+app.use('/api/rpc', rpcLimiter);
 app.use('/api/portfolio/public-balances', publicBalanceLimiter);
 app.use('/api/admin', adminLimiter);
 app.use('/api/admin-seed', seedLimiter);
+app.use('/api', apiLimiter);
 
 // ── Health Check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {

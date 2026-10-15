@@ -5,6 +5,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import NodeCache from 'node-cache';
 import { config } from '../config/env.js';
+import { store } from '../services/storeService.js';
 import { CanonicalPortfolioService } from '../services/canonicalPortfolioService.js';
 import {
   looksLikeInjection,
@@ -21,15 +22,26 @@ const quotaCache = new NodeCache({ stdTTL: 24 * 60 * 60, checkperiod: 600, useCl
 const TIER_DAILY_LIMITS = {
   FREE: 50,
   PRO: 500,
-  ULTIMATE: Infinity,
+  ULTIMATE: Number(process.env.AI_DAILY_LIMIT_ULTIMATE || 2000),
 };
 
-export const checkAndIncrementAiQuota = (user) => {
-  const tier = (user?.tier || (user?.isPro ? 'PRO' : 'FREE')).toUpperCase();
-  const limit = TIER_DAILY_LIMITS[tier] ?? TIER_DAILY_LIMITS.FREE;
-  if (!Number.isFinite(limit)) {
-    return { allowed: true, limit, remaining: Infinity, used: 0 };
+export const resolveUserTier = async (user) => {
+  if (!user) return 'FREE';
+  const userId = user.id;
+  const wallet = (user.wallet || user.address || '').toLowerCase();
+  let dbUser = null;
+  if (userId) {
+    dbUser = await store.findOne('users', { id: userId });
   }
+  if (!dbUser && wallet) {
+    dbUser = await store.findOne('users', { wallet });
+  }
+  return (dbUser?.tier || user.tier || (user.isPro ? 'PRO' : 'FREE')).toUpperCase();
+};
+
+export const checkAndIncrementAiQuota = async (user) => {
+  const tier = await resolveUserTier(user);
+  const limit = TIER_DAILY_LIMITS[tier] ?? TIER_DAILY_LIMITS.FREE;
 
   const userId = user?.id || user?.wallet || user?.address || 'anonymous';
   const today = new Date().toISOString().slice(0, 10);
@@ -37,12 +49,12 @@ export const checkAndIncrementAiQuota = (user) => {
 
   const currentUsage = quotaCache.get(cacheKey) || 0;
   if (currentUsage >= limit) {
-    return { allowed: false, limit, remaining: 0, used: currentUsage };
+    return { allowed: false, limit, remaining: 0, used: currentUsage, tier };
   }
 
   const newUsage = currentUsage + 1;
   quotaCache.set(cacheKey, newUsage);
-  return { allowed: true, limit, remaining: limit - newUsage, used: newUsage };
+  return { allowed: true, limit, remaining: Math.max(0, limit - newUsage), used: newUsage, tier };
 };
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -116,7 +128,7 @@ export const aiController = {
         return res.status(503).json({ error: 'AI analysis not configured' });
       }
 
-      const quota = checkAndIncrementAiQuota(req.user);
+      const quota = await checkAndIncrementAiQuota(req.user);
       if (!quota.allowed) {
         return res.status(429).json({
           error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
@@ -157,7 +169,7 @@ export const aiController = {
     try {
       if (!geminiKey()) return res.status(503).json({ error: 'AI briefing not configured' });
 
-      const quota = checkAndIncrementAiQuota(req.user);
+      const quota = await checkAndIncrementAiQuota(req.user);
       if (!quota.allowed) {
         return res.status(429).json({
           error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
@@ -169,26 +181,9 @@ export const aiController = {
       res.setHeader('X-RateLimit-Limit', String(quota.limit));
       res.setHeader('X-RateLimit-Remaining', String(quota.remaining));
 
-      const { userMessage, tier } = req.body || {};
+      const { userMessage } = req.body || {};
       if (typeof userMessage === 'string' && userMessage.trim().length > 0) {
-        const quota = checkAndIncrementAiQuota(req.user);
-      if (!quota.allowed) {
-        if (legacyPrompt !== null) {
-          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-          res.status(429);
-          return res.end('Daily AI query limit reached for your tier. Upgrade for higher limits.');
-        }
-        return res.status(429).json({
-          error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
-          code: 'AI_QUOTA_EXCEEDED',
-          limit: quota.limit,
-          used: quota.used,
-        });
-      }
-      res.setHeader('X-RateLimit-Limit', String(quota.limit));
-      res.setHeader('X-RateLimit-Remaining', String(quota.remaining));
-
-      if (looksLikeInjection(userMessage)) {
+        if (looksLikeInjection(userMessage)) {
           return res.json({ briefing: "I cannot fulfill this request due to input validation rules." });
         }
 
@@ -200,7 +195,7 @@ export const aiController = {
           .join(', ') || 'No assets detected';
 
         const prompt = `You are AlphaAi, a professional crypto portfolio assistant.
-User Tier: ${tier || 'FREE'}.
+User Tier: ${quota.tier || 'FREE'}.
 User Portfolio Summary: ${assetsSummary}. Total USD: ${snapshot.totalUSD != null ? '$' + snapshot.totalUSD : 'Unavailable'}.
 User Query: "${userMessage.slice(0, 800)}"
 
@@ -229,6 +224,23 @@ Reply with a short, helpful, plain-text answer (max 3 sentences). Do not wrap in
       const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
       const userMessage = legacyPrompt || messages.filter((m) => m.role === 'user').pop()?.content || '';
       if (!userMessage) return res.status(400).json({ error: 'No user message provided' });
+
+      const quota = await checkAndIncrementAiQuota(req.user);
+      if (!quota.allowed) {
+        if (legacyPrompt !== null) {
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+          res.status(429);
+          return res.end('Daily AI query limit reached for your tier. Upgrade for higher limits.');
+        }
+        return res.status(429).json({
+          error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
+          code: 'AI_QUOTA_EXCEEDED',
+          limit: quota.limit,
+          used: quota.used,
+        });
+      }
+      res.setHeader('X-RateLimit-Limit', String(quota.limit));
+      res.setHeader('X-RateLimit-Remaining', String(quota.remaining));
 
       if (looksLikeInjection(userMessage)) {
         if (legacyPrompt !== null) {
@@ -301,7 +313,7 @@ ${factsText || '(no wallet assets detected)'}`;
         return res.status(400).json({ error: 'BAD_MESSAGE' });
       }
 
-      const quota = checkAndIncrementAiQuota(req.user);
+      const quota = await checkAndIncrementAiQuota(req.user);
       if (!quota.allowed) {
         return res.status(429).json({
           error: 'Daily AI query limit reached for your tier. Upgrade for higher limits.',
