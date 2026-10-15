@@ -240,7 +240,7 @@ export const whaleController = {
       const follow = (follows || []).find((f) => f.id === req.params.id && f.userId === userId);
       if (!follow) return res.status(404).json({ error: 'Follow not found' });
 
-      await store.write('whale_follows', follows.filter((f) => f.id !== follow.id));
+      await store.delete('whale_follows', follow.id);
       res.status(204).end();
     } catch (error) {
       console.error('[WhaleController] Unfollow error:', error.message);

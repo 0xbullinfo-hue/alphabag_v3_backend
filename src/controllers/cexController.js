@@ -165,8 +165,7 @@ export const deleteConnection = async (req, res) => {
         return res.status(404).json({ error: 'CEX connection not found' });
     }
 
-    const connections = await store.read('cex_connections');
-    await store.write('cex_connections', connections.filter((item) => item.id !== connection.id));
+    await store.delete('cex_connections', connection.id);
     res.status(204).end();
 };
 

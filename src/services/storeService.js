@@ -5,8 +5,18 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 const { Pool } = pg;
 import dotenv from 'dotenv';
+import { isDev } from '../config/env.js';
 
 dotenv.config();
+
+export class StoreUnavailableError extends Error {
+    constructor(message = 'Database service is currently unavailable') {
+        super(message);
+        this.name = 'StoreUnavailableError';
+        this.statusCode = 503;
+        this.status = 503;
+    }
+}
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
@@ -93,7 +103,8 @@ class StoreService {
                 return await prisma[modelName].findMany();
             } catch (error) {
                 if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
-                    return memStore.get(collection) || [];
+                    if (isDev) return memStore.get(collection) || [];
+                    throw new StoreUnavailableError(`Database connection failed while reading collection ${collection}`);
                 }
                 console.error(`StoreService: Failed to read collection ${collection}:`, error);
                 throw error;
@@ -110,7 +121,8 @@ class StoreService {
                 return config.value;
             } catch (error) {
                 if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
-                    return collection.includes('config') || collection.includes('settings') ? {} : [];
+                    if (isDev) return collection.includes('config') || collection.includes('settings') ? {} : [];
+                    throw new StoreUnavailableError(`Database connection failed while reading fallback collection ${collection}`);
                 }
                 console.error(`StoreService: Failed to read fallback collection ${collection}:`, error);
                 throw error;
@@ -118,10 +130,13 @@ class StoreService {
         }
     }
 
-    async write(collection, data) {
+    async write(collection, data, options = {}) {
         return this.lock(async () => {
             const modelName = collectionToModelMap[collection];
             if (modelName) {
+                if (!options.replaceAll && !isDev) {
+                    throw new Error(`Unsafe full collection rewrite on Prisma model '${collection}'. Pass { replaceAll: true } if intentional, or use targeted update/delete.`);
+                }
                 try {
                     // Find existing IDs and incoming IDs to compute deletions
                     const existingItems = await prisma[modelName].findMany({ select: { id: true } });
@@ -169,8 +184,11 @@ class StoreService {
                     });
                 } catch (error) {
                     if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
-                        memStore.set(collection, data);
-                        return data;
+                        if (isDev) {
+                            memStore.set(collection, data);
+                            return data;
+                        }
+                        throw new StoreUnavailableError(`Database connection failed while writing collection ${collection}`);
                     }
                     console.error(`StoreService: Failed to write collection ${collection}:`, error);
                     throw error;
@@ -205,9 +223,12 @@ class StoreService {
                 return await prisma[modelName].findMany({ where });
             } catch (error) {
                 if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
-                    const items = memStore.get(collection) || [];
-                    if (Object.keys(query).length === 0) return items;
-                    return items.filter(item => Object.keys(query).every(key => item[key] === query[key]));
+                    if (isDev) {
+                        const items = memStore.get(collection) || [];
+                        if (Object.keys(query).length === 0) return items;
+                        return items.filter(item => Object.keys(query).every(key => item[key] === query[key]));
+                    }
+                    throw new StoreUnavailableError(`Database connection failed on findMany ${collection}`);
                 }
                 console.error(`StoreService: Failed findMany on ${collection}:`, error);
                 throw error;
@@ -238,8 +259,11 @@ class StoreService {
                 return await prisma[modelName].findFirst({ where });
             } catch (error) {
                 if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
-                    const items = memStore.get(collection) || [];
-                    return items.find(item => Object.keys(normalizedQuery).every(key => item[key] === normalizedQuery[key])) || null;
+                    if (isDev) {
+                        const items = memStore.get(collection) || [];
+                        return items.find(item => Object.keys(normalizedQuery).every(key => item[key] === normalizedQuery[key])) || null;
+                    }
+                    throw new StoreUnavailableError(`Database connection failed on findOne ${collection}`);
                 }
                 console.error(`StoreService: Failed findOne on ${collection}:`, error);
                 throw error;
@@ -283,11 +307,14 @@ class StoreService {
                     return await prisma[modelName].create({ data: sanitizedData });
                 } catch (error) {
                     if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
-                        const items = memStore.get(collection) || [];
-                        const created = { ...data, createdAt: data.createdAt || new Date().toISOString() };
-                        items.push(created);
-                        memStore.set(collection, items);
-                        return created;
+                        if (isDev) {
+                            const items = memStore.get(collection) || [];
+                            const created = { ...data, createdAt: data.createdAt || new Date().toISOString() };
+                            items.push(created);
+                            memStore.set(collection, items);
+                            return created;
+                        }
+                        throw new StoreUnavailableError(`Database connection failed on create ${collection}`);
                     }
                     console.error(`StoreService: Failed to create in ${collection}:`, error);
                     throw error;
@@ -368,15 +395,18 @@ class StoreService {
                 return result;
             } catch (error) {
                 if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
-                    const items = memStore.get(collection) || (await this.read(collection)) || [];
-                    const idx = items.findIndex(item => item.id === id);
-                    if (idx !== -1) {
-                        const updated = { ...items[idx], ...(updateFn(items[idx]) || {}) };
-                        items[idx] = updated;
-                        memStore.set(collection, items);
-                        return updated;
+                    if (isDev) {
+                        const items = memStore.get(collection) || (await this.read(collection)) || [];
+                        const idx = items.findIndex(item => item.id === id);
+                        if (idx !== -1) {
+                            const updated = { ...items[idx], ...(updateFn(items[idx]) || {}) };
+                            items[idx] = updated;
+                            memStore.set(collection, items);
+                            return updated;
+                        }
+                        return null;
                     }
-                    return null;
+                    throw new StoreUnavailableError(`Database connection failed on updateById in ${collection}`);
                 }
                 console.error(`StoreService: Failed to updateById in ${collection}:`, error);
                 throw error;
@@ -417,15 +447,18 @@ class StoreService {
                     return result;
                 } catch (error) {
                     if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
-                        const items = memStore.get(collection) || (await this.read(collection)) || [];
-                        const idx = items.findIndex(predicate);
-                        if (idx !== -1) {
-                            const updated = { ...items[idx], ...(updateFn(items[idx]) || {}) };
-                            items[idx] = updated;
-                            memStore.set(collection, items);
-                            return updated;
+                        if (isDev) {
+                            const items = memStore.get(collection) || (await this.read(collection)) || [];
+                            const idx = items.findIndex(predicate);
+                            if (idx !== -1) {
+                                const updated = { ...items[idx], ...(updateFn(items[idx]) || {}) };
+                                items[idx] = updated;
+                                memStore.set(collection, items);
+                                return updated;
+                            }
+                            return null;
                         }
-                        return null;
+                        throw new StoreUnavailableError(`Database connection failed on update in ${collection}`);
                     }
                     console.error(`StoreService: Failed to update in ${collection}:`, error);
                     throw error;

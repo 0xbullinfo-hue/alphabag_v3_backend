@@ -83,11 +83,10 @@ export const createNews = async (req, res) => {
 
 export const deleteNews = async (req, res) => {
     const { id } = req.params;
-    const list = await store.read('news');
-    const filtered = list.filter(i => i.id !== id);
-    if (list.length === filtered.length) return res.status(404).json({ error: 'Item not found' });
+    const existing = await store.findOne('news', { id });
+    if (!existing) return res.status(404).json({ error: 'Item not found' });
 
-    await store.write('news', filtered);
+    await store.delete('news', id);
     res.json({ success: true });
 };
 
@@ -133,9 +132,10 @@ export const updateSignal = async (req, res) => {
 
 export const deleteSignal = async (req, res) => {
     const { id } = req.params;
-    const list = await store.read('signals');
-    const filtered = list.filter(i => i.id !== id);
-    await store.write('signals', filtered);
+    const existing = await store.findOne('signals', { id });
+    if (!existing) return res.status(404).json({ error: 'Signal not found' });
+
+    await store.delete('signals', id);
     res.json({ success: true });
 };
 
@@ -165,9 +165,10 @@ export const addWhaleFollow = async (req, res) => {
 
 export const deleteWhaleFollow = async (req, res) => {
     const { id } = req.params;
-    const list = await store.read('whale_follows');
-    const filtered = list.filter(i => i.id !== id);
-    await store.write('whale_follows', filtered);
+    const existing = await store.findOne('whale_follows', { id });
+    if (!existing) return res.status(404).json({ error: 'Whale follow not found' });
+
+    await store.delete('whale_follows', id);
     res.json({ success: true });
 };
 

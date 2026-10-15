@@ -521,17 +521,24 @@ export const getSubmittedWallets = async (req, res) => {
 // Reset All Airdrop Data (Admin)
 export const resetAirdrop = async (req, res) => {
     try {
-        const users = await store.read('users');
-        const resetUsers = users.map(u => ({
-            ...u,
-            bagTokens: 0,
-            claimsHistory: []
-        }));
-        await store.write('users', resetUsers);
-        await store.write('airdrop', []);
+        const { confirm } = req.body || {};
+        if (confirm !== 'RESET AIRDROP DATA') {
+            return res.status(400).json({ error: "Confirmation phrase required: { confirm: 'RESET AIRDROP DATA' }" });
+        }
+
+        await store.prisma.$transaction(async (tx) => {
+            await tx.user.updateMany({
+                data: {
+                    bagTokens: 0,
+                    claimsHistory: []
+                }
+            });
+            await tx.airdropCampaign.deleteMany({});
+        });
 
         res.json({ success: true, message: 'All campaigns and histories reset.' });
     } catch (error) {
+        console.error('Reset Airdrop Error:', error);
         res.status(500).json({ error: 'Reset failed' });
     }
 };
@@ -914,23 +921,28 @@ export const exportMissionData = async (req, res) => {
 // FULL WIPE: wipe all $BAG, tasks, campaigns - but keep user accounts intact
 export const fullMissionWipe = async (req, res) => {
     try {
-        const users = await store.read('users');
-        const wipedUsers = users.map(u => ({
-            ...u,
-            bagTokens: 0,
-            claimsHistory: [],
-            completedTasks: [],
-            submittedWallet: null,
-            airdropSubmitted: false,
-            airdropSubmittedAt: null,
-            lastDailyTaskAt: null,
-            weeklyTasks: [],
-            referralCount: 0,
-            hasTopReferrerBonus: false,
-            isFounderAirdrop: false
-        }));
-        await store.write('users', wipedUsers);
-        await store.write('airdrop', []);
+        const { confirm } = req.body || {};
+        if (confirm !== 'WIPE MISSION DATA') {
+            return res.status(400).json({ error: "Confirmation phrase required: { confirm: 'WIPE MISSION DATA' }" });
+        }
+
+        await store.prisma.$transaction(async (tx) => {
+            await tx.user.updateMany({
+                data: {
+                    bagTokens: 0,
+                    claimsHistory: [],
+                    completedTasks: [],
+                    submittedWallet: null,
+                    airdropSubmitted: false,
+                    airdropSubmittedAt: null,
+                    lastDailyTaskAt: null,
+                    weeklyTasks: {},
+                    referralCount: 0,
+                    isFounderAirdrop: false
+                }
+            });
+            await tx.airdropCampaign.deleteMany({});
+        });
         await store.write('missionSettings', { isPaused: false });
         res.json({ success: true, message: 'Full mission data wiped. User accounts preserved. Ready for restart.' });
     } catch (error) {
