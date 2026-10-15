@@ -6,6 +6,8 @@
  * All values loaded from environment variables
  */
 
+import { isProduction } from './env.js';
+
 export const TOKEN_GATING_CONFIG = {
   // ===== TOKEN CONTRACT ADDRESSES =====
   // Empty until BAG token is deployed
@@ -32,7 +34,7 @@ export const TOKEN_GATING_CONFIG = {
 
   // ===== FEATURE FLAGS =====
   ENABLE_TOKEN_GATING: process.env.ENABLE_TOKEN_GATING === 'true',
-  IS_PRODUCTION: process.env.NODE_ENV === 'production',
+  IS_PRODUCTION: isProduction,
 };
 
 // ===== VALIDATION =====

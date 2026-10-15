@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
+import { isDev } from '../config/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -136,7 +137,7 @@ export const validateResponse = (res, statusCode, responseData, endpoint, method
     const schemaNameOrRef = getSchemaForEndpoint(endpoint, method, statusCode);
     if (!schemaNameOrRef) {
         // Endpoint not documented in OpenAPI spec
-        if (process.env.NODE_ENV !== 'production') {
+        if (isDev) {
             console.warn(`[SCHEMA VALIDATOR] No schema defined for ${method} ${endpoint} (${statusCode})`);
         }
         return { valid: true, errors: [] };
@@ -169,7 +170,7 @@ export const validateResponse = (res, statusCode, responseData, endpoint, method
             }));
 
             // Log violations in development
-            if (process.env.NODE_ENV !== 'production') {
+            if (isDev) {
                 console.warn(`[SCHEMA VIOLATION] ${method} ${endpoint} (${statusCode})`);
                 console.warn(`  Schema: ${schemaNameOrRef}`);
                 console.warn(`  Errors:`, JSON.stringify(errors, null, 2));

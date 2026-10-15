@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { config } from '../config/env.js';
 export function errorHandler(err, req, res, next) {
   console.error('[SERVER ERROR]', err);
   
@@ -11,6 +12,6 @@ export function errorHandler(err, req, res, next) {
 
   res.status(statusCode).json({
     error: message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+    ...(config.isDev && { stack: err.stack })
   });
 }

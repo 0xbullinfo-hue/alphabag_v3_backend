@@ -1,57 +1,83 @@
+import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 dotenv.config();
 
-export function validateEnv() {
-  const required = ['DATABASE_URL', 'JWT_SECRET'];
-  const missing = required.filter((key) => !process.env[key]);
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
-  if (missing.length > 0) {
-    console.error(`[ENV] Missing required variables: ${missing.join(', ')}`);
-    if (process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'production') {
-      process.exit(1);
+// Fail closed: ONLY an explicit development/test NODE_ENV enables dev shortcuts.
+// A missing or misspelled NODE_ENV is treated as production.
+export const isDevEnv = (env = process.env) =>
+  env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+export const isDev = isDevEnv();
+export const isProduction = !isDev;
+
+const WEAK_SECRETS = [
+  'your_jwt_secret_key_here',
+  'alphabag-secret-key-change-in-prod-urgent',
+  'alphabag-dev-secret-key-32chars-min!!',
+  'change-me-in-production',
+  'default',
+  'secret',
+];
+
+/**
+ * Pure check used by validateEnv and tests. Returns a list of fatal problems.
+ * Outside development/test every item is fatal.
+ */
+export function collectEnvErrors(env = process.env) {
+  const errors = [];
+  const missing = ['DATABASE_URL', 'JWT_SECRET'].filter((key) => !env[key]);
+  if (missing.length > 0) errors.push(`Missing required variables: ${missing.join(', ')}`);
+
+  if (!env.JWT_SECRET || env.JWT_SECRET.length < 32 || WEAK_SECRETS.includes(env.JWT_SECRET)) {
+    errors.push('JWT_SECRET must be at least 32 characters and not a default value');
+  }
+  if (!env.CEX_ENCRYPTION_KEY || !/^[a-fA-F0-9]{64}$/.test(env.CEX_ENCRYPTION_KEY)) {
+    errors.push('CEX_ENCRYPTION_KEY must be a 64-character hexadecimal key (32 bytes AES-256)');
+  }
+  if (!env.FRONTEND_URL || !/^https:\/\/[^*\s]+$/.test(env.FRONTEND_URL)) {
+    errors.push('FRONTEND_URL must be an explicit https origin (no wildcard)');
+  }
+  if (!env.ADMIN_PORTAL_KEY) errors.push('ADMIN_PORTAL_KEY is required');
+  if (env.BAG_TOKEN_ADDRESS && env.BAG_TOKEN_ADDRESS.toLowerCase() === ZERO_ADDRESS) {
+    errors.push('BAG_TOKEN_ADDRESS must not be the zero address');
+  }
+  return errors;
+}
+
+export function validateEnv(env = process.env, exit = process.exit) {
+  const dev = isDevEnv(env);
+  const errors = collectEnvErrors(env);
+
+  if (errors.length > 0) {
+    for (const e of errors) console.error(`[ENV] ${dev ? 'WARN' : 'FATAL'}: ${e}`);
+    if (!dev) {
+      console.error('[ENV] NODE_ENV is not "development"/"test", so production rules apply. Refusing to start.');
+      exit(1);
+      return errors;
     }
   }
 
-  // Production security checks
-  if (process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'production') {
-    const weakSecrets = [
-      'your_jwt_secret_key_here',
-      'alphabag-secret-key-change-in-prod-urgent',
-      'change-me-in-production',
-      'default',
-      'secret',
-    ];
-
-    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32 || weakSecrets.includes(process.env.JWT_SECRET)) {
-      console.error('[ENV] FATAL: JWT_SECRET must be at least 32 characters and not a default value');
-      process.exit(1);
-    }
-
-    if (!process.env.CEX_ENCRYPTION_KEY || !/^[a-fA-F0-9]{64}$/.test(process.env.CEX_ENCRYPTION_KEY)) {
-      console.error('[ENV] FATAL: CEX_ENCRYPTION_KEY must be a 64-character hexadecimal key (32 bytes AES-256)');
-      process.exit(1);
-    }
-
-    if (process.env.FRONTEND_URL === '*') {
-      console.error('[ENV] FATAL: FRONTEND_URL cannot be wildcard (*) in production');
-      process.exit(1);
-    }
-
-    if (!process.env.COVALENT_API_KEY) {
+  if (!dev) {
+    if (!env.COVALENT_API_KEY) {
       console.warn('[ENV] COVALENT_API_KEY not set — Security Scanner will use fallback mock data');
     }
-
-    if (!process.env.ALCHEMY_API_KEY) {
+    if (!env.ALCHEMY_API_KEY) {
       console.warn('[ENV] ALCHEMY_API_KEY not set — RPC proxy may fail');
     }
   }
+  return errors;
 }
+
+// Dev-only secrets: random per process, never a fixed public string.
+const devRandom = (bytes) => crypto.randomBytes(bytes).toString('hex');
 
 export const config = {
   port: parseInt(process.env.PORT || '3003', 10),
-  nodeEnv: process.env.NODE_ENV || 'development',
-  isProduction: process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'production',
-  jwtSecret: process.env.JWT_SECRET || 'alphabag-dev-secret-key-32chars-min!!',
+  nodeEnv: process.env.NODE_ENV || 'production',
+  isDev,
+  isProduction,
+  jwtSecret: process.env.JWT_SECRET || (isDev ? devRandom(32) : ''),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3005',
   dbUrl: process.env.DATABASE_URL || '',
   adminSetupSecret: process.env.ADMIN_SETUP_SECRET || null,
@@ -73,7 +99,7 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   bagTokenAddress: process.env.BAG_TOKEN_ADDRESS || '',
   minimumBagForUltimate: Number(process.env.MIN_BAG_REQUIRED || '10000'),
-  cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+  cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || (isDev ? devRandom(32) : ''),
   providerHealthTimeoutMs: Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || '5000'),
   providerHealthCacheMs: Number(process.env.PROVIDER_HEALTH_CACHE_MS || '15000'),
   outboundServerIp: process.env.OUTBOUND_SERVER_IP || null,

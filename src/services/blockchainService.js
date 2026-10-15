@@ -1,4 +1,4 @@
-﻿import { getOrSetCache } from '../utils/cache.js';
+import { getOrSetCache } from '../utils/cache.js';
 import { Alchemy, Network } from 'alchemy-sdk';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { config } from '../config/env.js';
@@ -27,7 +27,7 @@ class BlockchainService {
         // Note: PRIVATE_KEY should be in .env
         this.privateKey = process.env.PRIVATE_KEY;
 
-        if (this.privateKey && (process.env.NODE_ENV === 'production' || process.env.VITE_ENVIRONMENT === 'production')) {
+        if (this.privateKey && config.isProduction) {
             console.warn('\n=============================================================');
             console.warn('CRITICAL SECURITY WARNING: Raw PRIVATE_KEY detected in environment.');
             console.warn('For production, use AWS KMS, HashiCorp Vault, or equivalent.');

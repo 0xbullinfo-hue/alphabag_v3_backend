@@ -1,3 +1,4 @@
+import './src/config/validateOnBoot.js';
 import defiRewardsRouter from './src/routes/defiRewards.js';
 import cexTestRouter from './src/routes/cexTest.js';
 import adminAuditLogRouter from './src/routes/adminAuditLog.js';
@@ -12,7 +13,7 @@ const PORT = config.port;
 const listenCallback = () => {
   console.log(`\n[SYSTEM] AlphaBAG Infrastructure Active`);
   console.log(`[SYSTEM] Port/Socket: ${PORT} (Source: ${process.env.PORT ? 'Environment' : 'Default/Config'})`);
-  console.log(`[SYSTEM] Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`[SYSTEM] Environment: ${config.nodeEnv} (production rules: ${config.isProduction})`);
   if (!config.jwtSecret || config.jwtSecret.includes('urgent')) {
     console.warn(`[WARNING] Using non-secure or default JWT Secret.`);
   }

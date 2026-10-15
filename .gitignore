@@ -39,3 +39,12 @@ tree.txt
 .env
 .env.local
 
+
+# Non-sensitive seeds and definitions that remain tracked
+!data/news_seed.json
+!data/signals_seed.json
+!data/t2e_missions.json
+!data/t2e_tasks.json
+!data/t2e_config.json
+!data/tasks.json
+!data/missionSettings.json
