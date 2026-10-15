@@ -106,17 +106,31 @@ export const streamPortfolio = async (req, res) => {
 
   let closed = false;
   let interval = null;
+  let heartbeat = null;
 
-  req.on('close', () => {
+  const cleanup = () => {
+    if (closed) return;
     closed = true;
     if (interval) clearInterval(interval);
-    res.end();
-  });
+    if (heartbeat) clearInterval(heartbeat);
+    try { res.end(); } catch (_) {}
+  };
+
+  req.on('close', cleanup);
+  res.on('finish', cleanup);
+  res.on('error', cleanup);
+
+  // Send periodic SSE comment ping every 15s to keep proxy connections alive
+  heartbeat = setInterval(() => {
+    if (closed) return;
+    try { res.write(': ping\n\n'); } catch (_) { cleanup(); }
+  }, 15000);
 
   const pushUpdate = async () => {
     if (closed) return;
     try {
       const snapshot = await CanonicalPortfolioService.getSnapshot(user);
+      if (closed) return;
       const payload = {
         type: 'portfolio',
         timestamp: Date.now(),
@@ -131,7 +145,9 @@ export const streamPortfolio = async (req, res) => {
       };
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     } catch (e) {
-      if (!closed) res.write(`data: ${JSON.stringify({ type: 'error', message: 'Portfolio sync hiccup' })}\n\n`);
+      if (!closed) {
+        try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'Portfolio sync hiccup' })}\n\n`); } catch (_) {}
+      }
     }
   };
 
