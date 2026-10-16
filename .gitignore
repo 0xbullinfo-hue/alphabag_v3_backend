@@ -21,7 +21,8 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-docs/
+docs/*
+!docs/audit-exceptions.md
 # ── AlphaBAG V3 hygiene additions ─────────────────────────────
 # Real user data must NEVER be committed. Seeds stay tracked.
 data/*
