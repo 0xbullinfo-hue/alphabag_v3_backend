@@ -16,8 +16,9 @@ import {
   stalenessNotice,
 } from '../utils/guardrails.js';
 
+import { incrementAiQuota } from '../services/redisService.js';
+
 const analysisCache = new NodeCache({ stdTTL: 24 * 60 * 60, checkperiod: 600, useClones: false });
-const quotaCache = new NodeCache({ stdTTL: 24 * 60 * 60, checkperiod: 600, useClones: false });
 
 const TIER_DAILY_LIMITS = {
   FREE: 50,
@@ -45,16 +46,15 @@ export const checkAndIncrementAiQuota = async (user) => {
 
   const userId = user?.id || user?.wallet || user?.address || 'anonymous';
   const today = new Date().toISOString().slice(0, 10);
-  const cacheKey = `ai_quota_${userId}_${today}`;
+  const result = await incrementAiQuota(userId, today, limit);
 
-  const currentUsage = quotaCache.get(cacheKey) || 0;
-  if (currentUsage >= limit) {
-    return { allowed: false, limit, remaining: 0, used: currentUsage, tier };
-  }
-
-  const newUsage = currentUsage + 1;
-  quotaCache.set(cacheKey, newUsage);
-  return { allowed: true, limit, remaining: Math.max(0, limit - newUsage), used: newUsage, tier };
+  return {
+    allowed: result.allowed,
+    limit,
+    remaining: result.remaining,
+    used: result.used,
+    tier
+  };
 };
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';

@@ -32,7 +32,8 @@ const bscPublicClient = createPublicClient({
     transport: http(config.alchemyApiKey ? `https://bnb-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}` : undefined),
 });
 
-const nonces = new Map();
+import { storeNonce, consumeNonce } from '../services/redisService.js';
+
 const NONCE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_ISSUED_AT_AGE_MS = 5 * 60 * 1000;
 const SUPPORTED_SIWE_CHAIN_IDS = new Set([1, 10, 56, 137, 8453, 42161, 43114]);
@@ -55,14 +56,7 @@ export const getNonce = async (req, res) => {
         }
         const wallet = normalizeAddress(rawWallet);
         const nonce = generateNonce();
-        const expiresAt = Date.now() + NONCE_EXPIRY_MS;
-        nonces.set(nonce, { expiresAt, used: false, wallet });
-        if (nonces.size > 500) {
-            const now = Date.now();
-            for (const [key, val] of nonces.entries()) {
-                if (val.expiresAt < now || val.used) nonces.delete(key);
-            }
-        }
+        await storeNonce(nonce, wallet, Math.floor(NONCE_EXPIRY_MS / 1000));
         res.status(200).json({ nonce });
     } catch (error) {
         console.error('Nonce generation error:', error);
@@ -147,23 +141,18 @@ export const verify = async (req, res) => {
             return res.status(400).json({ error: 'SIWE message has expired' });
         }
 
-        if (!fields.nonce || !nonces.has(fields.nonce)) {
+        if (!fields.nonce) {
             return res.status(400).json({ error: 'Invalid or expired nonce' });
         }
 
-        const nonceData = nonces.get(fields.nonce);
-        if (nonceData.used || nonceData.expiresAt < Date.now()) {
-            nonces.delete(fields.nonce);
-            return res.status(400).json({ error: 'Nonce already used or expired' });
+        const nonceData = await consumeNonce(fields.nonce);
+        if (!nonceData) {
+            return res.status(400).json({ error: 'Invalid or expired nonce' });
         }
 
         if (nonceData.wallet && fields.address.toLowerCase() !== nonceData.wallet.toLowerCase()) {
-            nonces.delete(fields.nonce);
             return res.status(400).json({ error: 'Nonce was issued for a different wallet address' });
         }
-
-        nonceData.used = true;
-        nonces.delete(fields.nonce);
 
         const adminRecord = await store.findOne('admins', { wallet: fields.address.toLowerCase() });
         const isAdmin = !!adminRecord;

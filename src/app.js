@@ -84,73 +84,17 @@ app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use(cookieParser());
 app.use(csrfProtection);
 
-// ── Rate Limiting ──────────────────────────────────────────────────────────
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 20,
-  message: { error: 'Too many auth attempts, please try again later.' },
-  standardHeaders: true, legacyHeaders: false,
-});
+import {
+  leaderboardLimiter,
+  proxyLimiter,
+  rpcLimiter,
+  publicBalanceLimiter,
+  adminLimiter,
+  seedLimiter,
+  apiLimiter
+} from './middleware/rateLimiters.js';
 
-const nonceLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 50,
-  message: { error: 'Too many nonce requests, please try again later.' },
-  standardHeaders: true, legacyHeaders: false,
-});
-
-const verifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 20,
-  message: { error: 'Too many verification attempts, please try again later.' },
-  standardHeaders: true, legacyHeaders: false,
-});
-
-const leaderboardLimiter = rateLimit({
-  windowMs: 60 * 1000, max: 60,
-  message: { error: 'Too many leaderboard requests, please try again shortly.' },
-  standardHeaders: true, legacyHeaders: false,
-});
-
-const proxyLimiter = rateLimit({
-  windowMs: 60 * 1000, max: 60,
-  message: { error: 'Too many proxy requests, please try again shortly.' },
-  standardHeaders: true, legacyHeaders: false,
-});
-
-const rpcLimiter = rateLimit({
-  windowMs: 60 * 1000, max: 100,
-  message: { error: 'Too many RPC requests, please try again shortly.' },
-  standardHeaders: true, legacyHeaders: false,
-});
-
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 300,
-  message: { error: 'Too many requests, please try again later.' },
-  standardHeaders: true, legacyHeaders: false,
-});
-
-const publicBalanceLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  message: { error: 'Too many public balance requests. Please try again shortly.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const adminLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 500,
-  message: { error: 'Too many admin requests, please try again later.' },
-  standardHeaders: true, legacyHeaders: false,
-});
-
-const seedLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, max: 5,
-  message: { error: 'Too many seed attempts. This endpoint is heavily rate-limited.' },
-  standardHeaders: true, legacyHeaders: false,
-});
-
-// Dedicated route limiters before general limiters
-app.use('/api/auth/nonce', nonceLimiter);
-app.use('/api/auth/verify', verifyLimiter);
-app.use('/api/auth', authLimiter);
+// Dedicated route limiters (auth limiters are mounted per-endpoint in authRoutes.js to prevent double counting)
 app.use('/api/t2e/leaderboard', leaderboardLimiter);
 app.use('/api/proxy', proxyLimiter);
 app.use('/api/rpc', rpcLimiter);

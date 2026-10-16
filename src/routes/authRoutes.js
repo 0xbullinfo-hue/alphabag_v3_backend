@@ -17,14 +17,15 @@ import {
     listAdmins 
 } from '../controllers/authController.js';
 import { verifyToken, verifyAdmin } from '../middleware/authMiddleware.js';
+import { nonceLimiter, verifyLimiter, authLimiter } from '../middleware/rateLimiters.js';
 
 const router = express.Router();
 
-router.get('/nonce', getNonce);
-router.post('/verify', verify);
-router.post('/login', login);
+router.get('/nonce', nonceLimiter, getNonce);
+router.post('/verify', verifyLimiter, verify);
+router.post('/login', authLimiter, login);
 router.post('/logout', verifyToken, logout);
-router.post('/register', register);
+router.post('/register', authLimiter, register);
 router.get('/me', verifyToken, getMe);
 router.get('/referrals', verifyToken, getReferrals);
 router.post('/update-profile', verifyToken, updateProfile);
