@@ -109,6 +109,7 @@ export const config = {
   providerHealthCacheMs: Number(process.env.PROVIDER_HEALTH_CACHE_MS || '15000'),
   outboundServerIp: process.env.OUTBOUND_SERVER_IP || null,
   redisUrl: process.env.REDIS_URL || '',
+  bubblemapsApiKey: process.env.BUBBLEMAPS_API_KEY || '',
 };
 
 export default config;
