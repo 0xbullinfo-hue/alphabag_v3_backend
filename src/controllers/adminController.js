@@ -1,5 +1,5 @@
 
-import { store } from '../services/storeService.js';
+import { store, prisma } from '../services/storeService.js';
 
 // --- SYSTEM & USERS ---
 export const getSystemStats = async (req, res) => {
@@ -108,12 +108,9 @@ export const createSignal = async (req, res) => {
 export const updateSignal = async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
-    const list = await store.read('signals');
-    const index = list.findIndex(i => i.id === id);
 
-    console.log(`[DEBUG] Update Signal: ID=${id}, Found Index=${index}, Total Signals=${list.length}`);
-
-    if (index === -1) {
+    const existing = await store.findOne('signals', { id });
+    if (!existing) {
         console.error(`[ERROR] Signal ID ${id} not found in store.`);
         return res.status(404).json({ error: 'Signal not found' });
     }
@@ -123,10 +120,11 @@ export const updateSignal = async (req, res) => {
         return res.status(400).json({ error: 'Invalid Status' });
     }
 
-    const updatedItem = { ...list[index], ...updates };
-    list[index] = updatedItem;
+    const updatedItem = await prisma.signal.update({
+        where: { id },
+        data: updates
+    });
 
-    await store.write('signals', list);
     res.json({ success: true, item: updatedItem });
 };
 

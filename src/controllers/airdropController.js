@@ -36,7 +36,7 @@ function isValidHttpUrl(string) {
     }
 }
 import { body, validationResult } from 'express-validator';
-import { store } from '../services/storeService.js';
+import { store, prisma } from '../services/storeService.js';
 
 const recordActivity = async (username, action, points) => {
     try {
@@ -426,19 +426,18 @@ export const createCampaign = async (req, res) => {
         const newCamp = {
             id: crypto.randomUUID(),
             tokenTicker: tokenTicker || '🔒',
-            pointsPerClaim: pointsPerClaim || 50,
+            pointsPerClaim: pointsPerClaim ? parseInt(pointsPerClaim) : 50,
             durationDays: durationDays || 7,
-            startDate: new Date().toISOString(),
+            startDate: new Date(),
             status: status || 'ACTIVE',
             isSubmissionActive: isSubmissionActive !== undefined ? isSubmissionActive : true
         };
 
-        let campaigns = await store.read('airdrop');
-        if (!Array.isArray(campaigns)) campaigns = [];
-        campaigns.push(newCamp);
-        await store.write('airdrop', campaigns);
+        const created = await prisma.airdropCampaign.create({
+            data: newCamp
+        });
 
-        res.json({ success: true, item: newCamp });
+        res.json({ success: true, item: created });
     } catch (error) {
         console.error('[AIRDROP] createCampaign Error:', error.stack || error);
         res.status(500).json({ error: 'Failed to create campaign', details: config.isProduction ? undefined : error.message });
@@ -448,21 +447,22 @@ export const createCampaign = async (req, res) => {
 export const updateCampaign = async (req, res) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
+        const updates = { ...req.body };
 
-        let campaigns = await store.read('airdrop');
-        if (!Array.isArray(campaigns)) campaigns = [];
+        const existing = await store.findOne('airdrop', { id });
+        if (!existing) return res.status(404).json({ error: 'Campaign not found' });
 
-        const index = campaigns.findIndex(c => c.id === id);
-        if (index === -1) return res.status(404).json({ error: 'Campaign not found' });
-
-        if (updates.status === 'ACTIVE' && campaigns[index].status !== 'ACTIVE') {
-            updates.startDate = new Date().toISOString();
+        if (updates.status === 'ACTIVE' && existing.status !== 'ACTIVE') {
+            updates.startDate = new Date();
+        }
+        if (updates.startDate && typeof updates.startDate === 'string') {
+            updates.startDate = new Date(updates.startDate);
         }
 
-        const updated = { ...campaigns[index], ...updates };
-        campaigns[index] = updated;
-        await store.write('airdrop', campaigns);
+        const updated = await prisma.airdropCampaign.update({
+            where: { id },
+            data: updates
+        });
 
         res.json({ success: true, item: updated });
     } catch (error) {
@@ -474,11 +474,12 @@ export const updateCampaign = async (req, res) => {
 export const deleteCampaign = async (req, res) => {
     try {
         const { id } = req.params;
-        let campaigns = await store.read('airdrop');
-        if (!Array.isArray(campaigns)) campaigns = [];
+        const existing = await store.findOne('airdrop', { id });
+        if (!existing) return res.status(404).json({ error: 'Campaign not found' });
 
-        const filtered = campaigns.filter(c => c.id !== id);
-        await store.write('airdrop', filtered);
+        await prisma.airdropCampaign.delete({
+            where: { id }
+        });
 
         res.json({ success: true });
     } catch (error) {
@@ -734,20 +735,26 @@ export const getAdminTasks = async (req, res) => {
 export const upsertTask = async (req, res) => {
     try {
         const task = req.body;
-        let tasks = await store.read('tasks') || [];
+        const id = task.id || 't' + crypto.randomUUID();
+        const data = {
+            title: task.title || null,
+            description: task.description || null,
+            type: task.type || 'once',
+            rewardTokens: Number(task.rewardTokens || 0),
+            requiresLink: Boolean(task.requiresLink),
+            actionUrl: task.actionUrl || null,
+            status: task.status || 'ACTIVE'
+        };
 
-        if (!task.id) {
-            task.id = 't' + crypto.randomUUID();
-            tasks.push(task);
-        } else {
-            const index = tasks.findIndex(t => t.id === task.id);
-            if (index !== -1) tasks[index] = task;
-            else tasks.push(task);
-        }
+        const upserted = await prisma.task.upsert({
+            where: { id },
+            update: data,
+            create: { id, ...data }
+        });
 
-        await store.write('tasks', tasks);
-        res.json({ success: true, task });
+        res.json({ success: true, task: upserted });
     } catch (error) {
+        console.error('[AIRDROP] upsertTask Error:', error);
         res.status(500).json({ error: 'Failed' });
     }
 };
@@ -755,11 +762,16 @@ export const upsertTask = async (req, res) => {
 export const deleteTask = async (req, res) => {
     try {
         const { id } = req.params;
-        let tasks = await store.read('tasks') || [];
-        tasks = tasks.filter(t => t.id !== id);
-        await store.write('tasks', tasks);
+        const existing = await store.findOne('tasks', { id });
+        if (!existing) return res.status(404).json({ error: 'Task not found' });
+
+        await prisma.task.delete({
+            where: { id }
+        });
+
         res.json({ success: true });
     } catch (error) {
+        console.error('[AIRDROP] deleteTask Error:', error);
         res.status(500).json({ error: 'Failed' });
     }
 };

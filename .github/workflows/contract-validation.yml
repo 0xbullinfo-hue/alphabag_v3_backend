@@ -27,3 +27,6 @@ jobs:
 
       - name: Run runtime contract tests
         run: npm run test:contracts
+
+      - name: Run production rules tests
+        run: npm run test:prod-rules

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 const TREASURY_PRIVATE_KEY = process.env.TREASURY_PRIVATE_KEY;
 const TREASURY_WALLET = process.env.TREASURY_WALLET;
-import { store } from '../services/storeService.js';
+import { store, prisma } from '../services/storeService.js';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
@@ -233,7 +233,24 @@ export const getMissions = async (req, res) => {
                         status: t.status || 'ACTIVE',
                         createdAt: new Date().toISOString()
                     }));
-                    await store.write('t2e_missions', missions);
+                    await prisma.t2EMission.createMany({
+                        data: missions.map(m => ({
+                            id: m.id,
+                            title: m.title,
+                            description: m.description || null,
+                            rewardTokens: Number(m.rewardTokens || 0),
+                            rewardXP: Number(m.rewardXP || 0),
+                            type: m.type || 'SOCIAL',
+                            frequency: m.frequency || 'ONCE',
+                            requiresLink: Boolean(m.requiresLink),
+                            actionUrl: m.actionUrl || null,
+                            platform: m.platform || 'SOCIAL',
+                            category: m.category || 'GENERAL',
+                            status: m.status || 'ACTIVE',
+                            createdAt: new Date(m.createdAt || Date.now())
+                        })),
+                        skipDuplicates: true
+                    });
                 }
             } catch (seedErr) {
                 console.error('[T2E] Seeding tasks failed:', seedErr);
@@ -645,33 +662,31 @@ export const getAdminMissions = async (req, res) => {
 
 export const upsertMission = async (req, res) => {
     try {
-        const { id, title, description, rewardTokens, type, frequency, requiresLink, actionUrl, platform, category } = req.body;
-        let missions = await store.read('t2e_missions') || [];
+        const { id, title, description, rewardTokens, rewardXP, type, frequency, requiresLink, actionUrl, platform, category, status } = req.body;
+        if (!title) return res.status(400).json({ error: 'Title is required' });
 
-        const mission = {
-            id: id || 't2e_' + crypto.randomUUID(),
+        const missionId = id || 't2e_' + crypto.randomUUID();
+        const data = {
             title,
-            description,
-            rewardTokens: parseFloat(rewardTokens),
+            description: description || null,
+            rewardTokens: parseFloat(rewardTokens) || 0,
+            rewardXP: parseFloat(rewardXP) || parseFloat(rewardTokens) || 0,
             type: (type || frequency || 'ONCE').toUpperCase(),
             frequency: (frequency || type || 'ONCE').toUpperCase(),
-            requiresLink: !!requiresLink,
-            actionUrl: actionUrl || '',
+            requiresLink: Boolean(requiresLink),
+            actionUrl: actionUrl || null,
             platform: platform || 'SOCIAL',
             category: category || 'GENERAL',
-            status: 'ACTIVE',
-            createdAt: new Date().toISOString()
+            status: status || 'ACTIVE'
         };
 
-        const index = missions.findIndex(m => m.id === mission.id);
-        if (index !== -1) {
-            missions[index] = { ...missions[index], ...mission };
-        } else {
-            missions.push(mission);
-        }
+        const upserted = await prisma.t2EMission.upsert({
+            where: { id: missionId },
+            update: data,
+            create: { id: missionId, ...data }
+        });
 
-        await store.write('t2e_missions', missions);
-        res.json({ success: true, mission });
+        res.json({ success: true, mission: upserted });
     } catch (error) {
         console.error('[T2E] Upsert Mission Error:', error);
         res.status(500).json({ error: 'Failed to deploy mission' });
@@ -681,11 +696,15 @@ export const upsertMission = async (req, res) => {
 export const deleteMission = async (req, res) => {
     try {
         const { id } = req.params;
-        let missions = await store.read('t2e_missions') || [];
-        missions = missions.filter(m => m.id !== id);
-        await store.write('t2e_missions', missions);
+        const existing = await store.findOne('t2e_missions', { id });
+        if (!existing) return res.status(404).json({ error: 'Mission not found' });
+
+        await prisma.t2EMission.delete({
+            where: { id }
+        });
         res.json({ success: true });
     } catch (error) {
+        console.error('[T2E] Delete Mission Error:', error);
         res.status(500).json({ error: 'Failed to delete mission' });
     }
 };
@@ -846,28 +865,17 @@ export const approveAllTokenRequests = async (req, res) => {
 export const markAllPayoutsDone = async (req, res) => {
     try {
         const { txReference } = req.body;
-        const requests = await store.read('t2e_payout_requests') || [];
-        let updatedCount = 0;
-
-        const updatedRequests = requests.map(r => {
-            if (r.status === 'APPROVED') {
-                updatedCount++;
-                return {
-                    ...r,
-                    status: 'SENT',
-                    sentAt: new Date().toISOString(),
-                    txReference: txReference || 'Bulk Manual Airdrop',
-                    processedBy: req.user?.id || 'admin'
-                };
+        const result = await prisma.t2EPayoutRequest.updateMany({
+            where: { status: 'APPROVED' },
+            data: {
+                status: 'SENT',
+                sentAt: new Date(),
+                txReference: txReference || 'Bulk Manual Airdrop',
+                processedBy: req.user?.id || 'admin'
             }
-            return r;
         });
 
-        if (updatedCount > 0) {
-            await store.write('t2e_payout_requests', updatedRequests);
-        }
-
-        res.json({ success: true, message: `Marked ${updatedCount} approved requests as SENT.` });
+        res.json({ success: true, message: `Marked ${result.count} approved requests as SENT.` });
     } catch (error) {
         console.error('[T2E] Mark All Done Error:', error);
         res.status(500).json({ error: 'Failed to mark requests as SENT' });
@@ -877,29 +885,41 @@ export const markAllPayoutsDone = async (req, res) => {
 export const rejectBulkTokenRequests = async (req, res) => {
     try {
         const { ids } = req.body;
-        if (!ids || !Array.isArray(ids)) {
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
             return res.status(400).json({ error: 'Request body must contain an array of ids' });
         }
 
-        const requests = await store.read('t2e_payout_requests') || [];
-        let updatedCount = 0;
+        const updatedCount = await prisma.$transaction(async (tx) => {
+            const pendingRequests = await tx.t2EPayoutRequest.findMany({
+                where: {
+                    id: { in: ids },
+                    status: 'PENDING'
+                }
+            });
 
-        const updatedRequests = requests.map(r => {
-            if (ids.includes(r.id) && r.status === 'PENDING') {
-                updatedCount++;
-                return {
-                    ...r,
-                    status: 'REJECTED'
-                };
+            if (pendingRequests.length === 0) return 0;
+
+            // 1. Mark requests as REJECTED
+            await tx.t2EPayoutRequest.updateMany({
+                where: {
+                    id: { in: pendingRequests.map(r => r.id) },
+                    status: 'PENDING'
+                },
+                data: { status: 'REJECTED' }
+            });
+
+            // 2. Refund each user's items balance (crucial: users must not lose their points)
+            for (const request of pendingRequests) {
+                await tx.user.update({
+                    where: { id: request.userId },
+                    data: { items: { increment: Number(request.expectedTokens) } }
+                });
             }
-            return r;
+
+            return pendingRequests.length;
         });
 
-        if (updatedCount > 0) {
-            await store.write('t2e_payout_requests', updatedRequests);
-        }
-
-        res.json({ success: true, message: `Rejected ${updatedCount} selected requests.` });
+        res.json({ success: true, message: `Rejected ${updatedCount} selected requests.`, count: updatedCount });
     } catch (error) {
         console.error('[T2E] Reject Bulk Error:', error);
         res.status(500).json({ error: 'Failed to reject selected requests' });
