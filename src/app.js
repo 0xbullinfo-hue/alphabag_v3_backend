@@ -24,6 +24,8 @@ import projectRoutes from './routes/projectRoutes.js';
 import { verifyToken, verifyAdmin } from './middleware/authMiddleware.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import providerHealthRoutes from './routes/providerHealthRoutes.js';
+import cookieParser from 'cookie-parser';
+import { csrfProtection } from './middleware/csrfMiddleware.js';
 
 const app = express();
 
@@ -79,6 +81,8 @@ app.use(cors(corsOptions));
 // ── Body Parsing ───────────────────────────────────────────────────────────
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+app.use(cookieParser());
+app.use(csrfProtection);
 
 // ── Rate Limiting ──────────────────────────────────────────────────────────
 const authLimiter = rateLimit({

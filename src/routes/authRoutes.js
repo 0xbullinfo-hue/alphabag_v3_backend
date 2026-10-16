@@ -11,6 +11,7 @@ import {
     verifyUpgrade, 
     getNonce, 
     verify, 
+    logout,
     promoteToAdmin, 
     removeAdmin, 
     listAdmins 
@@ -22,6 +23,7 @@ const router = express.Router();
 router.get('/nonce', getNonce);
 router.post('/verify', verify);
 router.post('/login', login);
+router.post('/logout', verifyToken, logout);
 router.post('/register', register);
 router.get('/me', verifyToken, getMe);
 router.get('/referrals', verifyToken, getReferrals);

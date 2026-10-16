@@ -70,6 +70,51 @@ export const getNonce = async (req, res) => {
     }
 };
 
+export const setAuthCookie = (res, token) => {
+    res.cookie('alphabag_session', token, {
+        httpOnly: true,
+        secure: config.isProduction,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000,
+    });
+};
+
+export const logout = async (req, res) => {
+    try {
+        if (req.user?.id) {
+            const user = (await store.findOne('users', { id: req.user.id })) ||
+                (req.user.wallet ? await store.findOne('users', { wallet: req.user.wallet.toLowerCase() }) : null);
+            if (user) {
+                await store.updateById('users', user.id, (u) => ({
+                    tokenVersion: (u.tokenVersion || 0) + 1,
+                    updatedAt: new Date().toISOString(),
+                }));
+            }
+            if (req.user.isAdmin) {
+                const admin = (await store.findOne('admins', { id: req.user.id })) ||
+                    (req.user.wallet ? await store.findOne('admins', { wallet: req.user.wallet.toLowerCase() }) : null);
+                if (admin) {
+                    await store.updateById('admins', admin.id, (a) => ({
+                        tokenVersion: (a.tokenVersion || 0) + 1,
+                        updatedAt: new Date().toISOString(),
+                    }));
+                }
+            }
+        }
+        res.clearCookie('alphabag_session', {
+            httpOnly: true,
+            secure: config.isProduction,
+            sameSite: 'lax',
+            path: '/',
+        });
+        res.status(200).json({ success: true, message: 'Logged out successfully' });
+    } catch (error) {
+        console.error('Logout error:', error);
+        res.status(500).json({ error: 'Failed to logout' });
+    }
+};
+
 // ── Standard SIWE Verification ─────────────────────────────────────────────
 export const verify = async (req, res) => {
     try {
@@ -146,8 +191,14 @@ export const verify = async (req, res) => {
             tv: user.tokenVersion ?? 0,
         };
 
-        const token = jwt.sign(tokenPayload, config.jwtSecret, { expiresIn: '7d', algorithm: 'HS256' });
+        const token = jwt.sign(tokenPayload, config.jwtSecret, {
+            expiresIn: '24h',
+            algorithm: 'HS256',
+            issuer: 'alphabag-api',
+            audience: 'alphabag-client'
+        });
 
+        setAuthCookie(res, token);
         res.status(200).json({ token, user: tokenPayload });
     } catch (error) {
         console.error('Verification error:', error);
@@ -258,8 +309,9 @@ export const login = async (req, res) => {
     const token = jwt.sign(
         { id: adminSafe.id, email: adminSafe.email, isAdmin: true, tv: adminSafe.tokenVersion ?? 0 },
         config.jwtSecret,
-        { expiresIn: '24h', algorithm: 'HS256' }
+        { expiresIn: '24h', algorithm: 'HS256', issuer: 'alphabag-api', audience: 'alphabag-client' }
     );
+    setAuthCookie(res, token);
     res.json({ token, user: { ...adminSafe, isAdmin: true } });
 };
 
@@ -473,6 +525,13 @@ export const removeAdmin = async (req, res) => {
         }
 
         await store.delete('admins', existing.id);
+        const user = await store.findOne('users', { wallet: normalizedWallet });
+        if (user) {
+            await store.updateById('users', user.id, u => ({
+                tokenVersion: (u.tokenVersion || 0) + 1,
+                updatedAt: new Date().toISOString()
+            }));
+        }
         console.log(`[ADMIN] Removed ${normalizedWallet} from admins`);
         res.status(200).json({ success: true });
     } catch (error) {

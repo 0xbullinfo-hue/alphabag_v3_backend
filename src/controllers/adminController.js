@@ -64,6 +64,19 @@ export const getUsers = async (req, res) => {
     res.json(safeUsers);
 };
 
+export const toggleBanUser = async (req, res) => {
+    const { id } = req.params;
+    const user = await store.findOne('users', { id });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const isBanned = !user.isBanned;
+    const updated = await store.updateById('users', id, u => ({
+        isBanned,
+        tokenVersion: (u.tokenVersion || 0) + 1,
+        updatedAt: new Date().toISOString()
+    }));
+    res.json({ success: true, isBanned: updated.isBanned });
+};
+
 // --- CONTENT MANAGEMENT ---
 
 // News

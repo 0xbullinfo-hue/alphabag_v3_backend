@@ -2,7 +2,7 @@
 import express from 'express';
 import { verifyToken, verifyAdmin } from '../middleware/authMiddleware.js';
 import {
-    getSystemStats, getUsers,
+    getSystemStats, getUsers, toggleBanUser,
     createNews, deleteNews,
     createSignal, updateSignal, deleteSignal,
     getWhaleFollows, addWhaleFollow, deleteWhaleFollow,
@@ -18,6 +18,7 @@ router.use(verifyToken, verifyAdmin);
 // Dashboard
 router.get('/system', getSystemStats);
 router.get('/users', getUsers);
+router.post('/users/:id/ban', toggleBanUser);
 
 // News Management
 router.post('/news', createNews);
