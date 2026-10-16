@@ -267,6 +267,21 @@ model T2EPayoutRequest {
   @@map("t2e_payout_requests")
 }
 
+// ─── PAYOUT TRANSACTION CLAIMS (Double-Spend / Replay Prevention) ───────────
+
+model PayoutTxClaim {
+  id              String   @id @default(uuid())
+  txHash          String
+  walletAddress   String
+  amountWei       String
+  payoutRequestId String   @unique
+  claimedAt       DateTime @default(now())
+
+  @@unique([txHash, walletAddress])
+  @@index([txHash])
+  @@map("payout_tx_claims")
+}
+
 // ─── LEGACY TASKS (airdropController tasks store) ────────────────────────────
 
 model Task {

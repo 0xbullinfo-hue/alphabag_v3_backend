@@ -43,35 +43,46 @@ const createMockStore = (seed = {}) => {
         return structuredClone(items[index]);
     };
 
+    const payoutReqHandler = {
+        findMany: async ({ where }) => {
+            const items = db.t2e_payout_requests || [];
+            return items.filter(x => {
+                if (where.status && x.status !== where.status) return false;
+                if (where.id?.in && !where.id.in.includes(x.id)) return false;
+                return true;
+            });
+        },
+        findUnique: async ({ where }) => {
+            const items = db.t2e_payout_requests || [];
+            return items.find(x => x.id === where.id) || null;
+        },
+        updateMany: async ({ where, data }) => {
+            const items = db.t2e_payout_requests || [];
+            let count = 0;
+            for (let i = 0; i < items.length; i++) {
+                if (where.status && items[i].status !== where.status) continue;
+                if (where.id?.in && !where.id.in.includes(items[i].id)) continue;
+                items[i] = { ...items[i], ...data };
+                count++;
+            }
+            return { count };
+        },
+        update: async ({ where, data }) => {
+            const items = db.t2e_payout_requests || [];
+            const idx = items.findIndex(x => x.id === where.id);
+            if (idx !== -1) {
+                items[idx] = { ...items[idx], ...data };
+                return items[idx];
+            }
+            return null;
+        }
+    };
+
     store.prisma = {
+        t2EPayoutRequest: payoutReqHandler,
         $transaction: async (fn) => {
             const tx = {
-                t2EPayoutRequest: {
-                    findMany: async ({ where }) => {
-                        const items = db.t2e_payout_requests || [];
-                        return items.filter(x => (where.status ? x.status === where.status : true));
-                    },
-                    updateMany: async ({ where, data }) => {
-                        const items = db.t2e_payout_requests || [];
-                        let count = 0;
-                        for (let i = 0; i < items.length; i++) {
-                            if (!where.status || items[i].status === where.status) {
-                                items[i] = { ...items[i], ...data };
-                                count++;
-                            }
-                        }
-                        return { count };
-                    },
-                    update: async ({ where, data }) => {
-                        const items = db.t2e_payout_requests || [];
-                        const idx = items.findIndex(x => x.id === where.id);
-                        if (idx !== -1) {
-                            items[idx] = { ...items[idx], ...data };
-                            return items[idx];
-                        }
-                        return null;
-                    }
-                },
+                t2EPayoutRequest: payoutReqHandler,
                 user: {
                     update: async ({ where, data }) => {
                         const users = db.users || [];

@@ -37,7 +37,8 @@ const collectionToModelMap = {
     'admins': 'admin',
     'cex_connections': 'cexConnection',
     'whale_follows': 'whaleFollow',
-    'trades': 'trade'
+    'trades': 'trade',
+    'payout_tx_claims': 'payoutTxClaim'
 };
 
 const memStore = new Map();

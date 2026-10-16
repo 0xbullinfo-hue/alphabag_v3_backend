@@ -12,7 +12,9 @@ const __dirname = path.dirname(__filename);
 const t2eEmitter = new EventEmitter();
 import { config } from '../config/env.js';
 import { normalizeAddress } from '../utils/address.js';
-import { verifyTransfer } from '../services/payoutVerifier.js';
+import { verifyTransfer, verifyBatchTransfers, getBscPublicClient, TRANSFER_EVENT } from '../services/payoutVerifier.js';
+import { parseEventLogs } from 'viem';
+import { SiweMessage } from 'siwe';
 
 // Cooldown map to prevent automated economic spamming (F-08)
 const economicCooldowns = new Map();
@@ -596,7 +598,7 @@ export const requestBagPayout = async (req, res) => {
 
 export const updatePreferredWallet = async (req, res) => {
     try {
-        const { wallet } = req.body;
+        const { wallet, signature, message } = req.body;
         const normalized = normalizeAddress(wallet);
         if (!normalized) {
             return res.status(400).json({ error: 'A valid EVM wallet address is required' });
@@ -611,10 +613,44 @@ export const updatePreferredWallet = async (req, res) => {
             return res.status(409).json({ error: 'Cannot update payout wallet while a payout request is PENDING' });
         }
 
-        await store.updateById('users', req.user.id, () => ({ preferredWallet: normalized }));
+        const user = await store.findOne('users', { id: req.user.id });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const currentWallet = user.preferredWallet || user.verifiedWallet;
+        if (currentWallet && currentWallet.toLowerCase() !== normalized.toLowerCase()) {
+            if (signature && message) {
+                // Verify SIWE message signed by the NEW wallet address
+                try {
+                    const siweMessage = new SiweMessage(message);
+                    const fields = await siweMessage.validate(signature);
+                    if (normalizeAddress(fields.address)?.toLowerCase() !== normalized.toLowerCase()) {
+                        return res.status(400).json({ error: 'Signature does not match the new wallet address' });
+                    }
+                    const issuedAt = Date.parse(fields.issuedAt);
+                    if (!Number.isFinite(issuedAt) || Math.abs(Date.now() - issuedAt) > 10 * 60 * 1000) {
+                        return res.status(400).json({ error: 'SIWE challenge timestamp is expired' });
+                    }
+                } catch (siweErr) {
+                    return res.status(400).json({ error: `SIWE verification failed: ${siweErr.message}` });
+                }
+            } else {
+                return res.status(403).json({
+                    error: 'Updating preferred wallet requires a fresh SIWE signature from the new wallet address to prove ownership, or a 24h security cooldown.',
+                    requiresSignature: true
+                });
+            }
+        }
+
+        await prisma.user.update({
+            where: { id: req.user.id },
+            data: { preferredWallet: normalized }
+        });
 
         res.json({ success: true, message: 'Preferred wallet updated', wallet: normalized });
     } catch (error) {
+        console.error('[T2E] Update Preferred Wallet Error:', error);
         res.status(500).json({ error: 'Update failed' });
     }
 };
@@ -734,9 +770,11 @@ export const approveTokenRequest = async (req, res) => {
         if (!request) return res.status(404).json({ error: 'Request not found' });
         if (request.status !== 'PENDING') return res.status(400).json({ error: 'Request already processed' });
 
+        const db = store.prisma || prisma;
+
         if (status === 'REJECTED') {
             // Atomic reject + refund user's balance
-            await store.prisma.$transaction(async (tx) => {
+            await db.$transaction(async (tx) => {
                 await tx.t2EPayoutRequest.update({
                     where: { id },
                     data: { status: 'REJECTED' }
@@ -754,27 +792,87 @@ export const approveTokenRequest = async (req, res) => {
             return res.status(400).json({ error: 'A valid on-chain transaction hash (64-character hex 0x...) is required to approve a payout.' });
         }
 
-        // If BAG token address is configured, perform on-chain transfer verification
-        if (config.bagTokenAddress) {
+        // Hard fail in production if BAG token or treasury addresses are missing
+        if (config.isProduction && (!config.bagTokenAddress || !config.treasuryAddress)) {
+            return res.status(503).json({ error: 'Payout verification unavailable (missing BAG_TOKEN_ADDRESS or TREASURY_WALLET)' });
+        }
+
+        const configRecord = await store.findOne('t2e_config', { id: 'global_config' });
+        const rate = (configRecord && typeof configRecord.itemsToBagRate === 'number' && configRecord.itemsToBagRate > 0)
+            ? configRecord.itemsToBagRate
+            : 1.0;
+        const expectedBagTokens = Number(request.expectedTokens) * rate;
+        const expectedWei = BigInt(Math.floor(expectedBagTokens * 1e6)) * (10n ** 12n);
+
+        // If BAG token address and treasury address are configured, perform on-chain transfer verification
+        if (config.bagTokenAddress && config.treasuryAddress) {
             const verification = await verifyTransfer({
                 txHash,
                 to: request.walletAddress,
-                minAmountWei: 0, // In dev/test minimal verification; amounts validated if rate configured
+                minAmountWei: expectedWei,
             });
             if (!verification.verified) {
                 return res.status(400).json({ error: `On-chain transfer verification failed: ${verification.error}` });
             }
         }
 
-        await store.updateById('t2e_payout_requests', id, () => ({ 
-            status: 'APPROVED',
-            txHash,
-            sentAt: new Date().toISOString(),
-            processedBy: req.user?.id || 'admin'
-        }));
+        const normalizedRecipient = normalizeAddress(request.walletAddress);
 
-        res.json({ success: true, txHash, status: 'APPROVED' });
+        // Atomic anti-replay check and state transition
+        const approved = await db.$transaction(async (tx) => {
+            const currentReq = await (tx.t2EPayoutRequest.findUnique ? tx.t2EPayoutRequest.findUnique({ where: { id } }) : tx.t2EPayoutRequest.findMany({ where: { id } }).then(res => res[0]));
+            if (!currentReq || currentReq.status !== 'PENDING') {
+                const err = new Error('Request already processed');
+                err.status = 400;
+                throw err;
+            }
+
+            if (tx.payoutTxClaim) {
+                const existingClaim = await tx.payoutTxClaim.findUnique({
+                    where: {
+                        txHash_walletAddress: {
+                            txHash: txHash.toLowerCase(),
+                            walletAddress: normalizedRecipient
+                        }
+                    }
+                });
+                if (existingClaim) {
+                    const err = new Error('Transaction hash has already been used for this recipient');
+                    err.status = 409;
+                    throw err;
+                }
+
+                await tx.payoutTxClaim.create({
+                    data: {
+                        id: crypto.randomUUID(),
+                        txHash: txHash.toLowerCase(),
+                        walletAddress: normalizedRecipient,
+                        amountWei: expectedWei.toString(),
+                        payoutRequestId: id,
+                        claimedAt: new Date()
+                    }
+                });
+            }
+
+            return await tx.t2EPayoutRequest.update({
+                where: { id },
+                data: {
+                    status: 'APPROVED',
+                    txHash,
+                    sentAt: new Date(),
+                    processedBy: req.user?.id || 'admin'
+                }
+            });
+        });
+
+        res.json({ success: true, txHash, status: 'APPROVED', request: approved });
     } catch (error) {
+        if (error.status === 400) {
+            return res.status(400).json({ error: error.message });
+        }
+        if (error.status === 409 || error.code === 'P2002') {
+            return res.status(409).json({ error: 'Transaction hash has already been used for this recipient' });
+        }
         console.error('[T2E] Approve Request Error:', error);
         res.status(500).json({ error: 'Approval failed' });
     }
@@ -794,12 +892,21 @@ export const markPayoutDone = async (req, res) => {
             return res.status(400).json({ error: `Invalid transition: payout must be in APPROVED status before being marked as SENT (current: ${request.status})` });
         }
 
-        await store.updateById('t2e_payout_requests', id, () => ({
-            status: 'SENT',
-            sentAt: new Date().toISOString(),
-            txReference: txReference || request.txHash || null,
-            processedBy: req.user?.id || 'admin'
-        }));
+        const finalTxRef = txReference || request.txHash;
+        if (!finalTxRef) {
+            return res.status(400).json({ error: 'A valid transaction reference matching the approved payout is required' });
+        }
+
+        const db = store.prisma || prisma;
+        await db.t2EPayoutRequest.update({
+            where: { id },
+            data: {
+                status: 'SENT',
+                sentAt: new Date(),
+                txReference: finalTxRef,
+                processedBy: req.user?.id || 'admin'
+            }
+        });
 
         res.json({ success: true, message: 'Payout marked as SENT.' });
     } catch (error) {
@@ -834,28 +941,119 @@ export const approveAllTokenRequests = async (req, res) => {
             return res.status(400).json({ error: 'A valid 64-character batch transaction hash (0x...) is required to approve pending payouts.' });
         }
 
+        // Hard fail in production if BAG token or treasury addresses are missing
+        if (config.isProduction && (!config.bagTokenAddress || !config.treasuryAddress)) {
+            return res.status(503).json({ error: 'Payout verification unavailable (missing BAG_TOKEN_ADDRESS or TREASURY_WALLET)' });
+        }
+
+        const configRecord = await store.findOne('t2e_config', { id: 'global_config' });
+        const rate = (configRecord && typeof configRecord.itemsToBagRate === 'number' && configRecord.itemsToBagRate > 0)
+            ? configRecord.itemsToBagRate
+            : 1.0;
+
+        let batchTransfers = null;
+        if (config.bagTokenAddress && config.treasuryAddress) {
+            const verification = await verifyBatchTransfers({ txHash });
+            if (!verification.verified) {
+                return res.status(400).json({ error: `On-chain batch verification failed: ${verification.error}` });
+            }
+            batchTransfers = verification.transfersByRecipient;
+        }
+
         // Run batch approval inside a single atomic transaction
-        const updatedCount = await store.prisma.$transaction(async (tx) => {
+        const db = store.prisma || prisma;
+        const result = await db.$transaction(async (tx) => {
             const pendingRequests = await tx.t2EPayoutRequest.findMany({
                 where: { status: 'PENDING' }
             });
 
-            if (pendingRequests.length === 0) return 0;
+            if (pendingRequests.length === 0) {
+                return { approvedCount: 0, unmatchedCount: 0, approvedIds: [], unmatched: [] };
+            }
 
-            await tx.t2EPayoutRequest.updateMany({
-                where: { status: 'PENDING' },
-                data: {
-                    status: 'APPROVED',
-                    txHash,
-                    sentAt: new Date(),
-                    processedBy: req.user?.id || 'admin'
+            const approvedIds = [];
+            const unmatched = [];
+
+            for (const request of pendingRequests) {
+                const normalizedRecipient = normalizeAddress(request.walletAddress);
+                const expectedBagTokens = Number(request.expectedTokens) * rate;
+                const expectedWei = BigInt(Math.floor(expectedBagTokens * 1e6)) * (10n ** 12n);
+
+                // If batch transfers verification is active, ensure recipient received at least expectedWei
+                if (batchTransfers) {
+                    const transferred = batchTransfers.get(normalizedRecipient) || 0n;
+                    if (transferred < expectedWei) {
+                        unmatched.push({
+                            id: request.id,
+                            walletAddress: request.walletAddress,
+                            expectedWei: expectedWei.toString(),
+                            transferredWei: transferred.toString(),
+                            reason: transferred === 0n ? 'No transfer found in batch' : 'Insufficient transfer amount'
+                        });
+                        continue;
+                    }
                 }
-            });
 
-            return pendingRequests.length;
+                // Check replay
+                if (tx.payoutTxClaim) {
+                    const existingClaim = await tx.payoutTxClaim.findUnique({
+                        where: {
+                            txHash_walletAddress: {
+                                txHash: txHash.toLowerCase(),
+                                walletAddress: normalizedRecipient
+                            }
+                        }
+                    });
+
+                    if (existingClaim) {
+                        unmatched.push({
+                            id: request.id,
+                            walletAddress: request.walletAddress,
+                            reason: 'Transaction already claimed for this recipient'
+                        });
+                        continue;
+                    }
+
+                    await tx.payoutTxClaim.create({
+                        data: {
+                            id: crypto.randomUUID(),
+                            txHash: txHash.toLowerCase(),
+                            walletAddress: normalizedRecipient,
+                            amountWei: expectedWei.toString(),
+                            payoutRequestId: request.id,
+                            claimedAt: new Date()
+                        }
+                    });
+                }
+
+                await tx.t2EPayoutRequest.update({
+                    where: { id: request.id },
+                    data: {
+                        status: 'APPROVED',
+                        txHash,
+                        sentAt: new Date(),
+                        processedBy: req.user?.id || 'admin'
+                    }
+                });
+
+                approvedIds.push(request.id);
+            }
+
+            return {
+                approvedCount: approvedIds.length,
+                unmatchedCount: unmatched.length,
+                approvedIds,
+                unmatched
+            };
         });
 
-        res.json({ success: true, message: `Approved ${updatedCount} pending requests.`, count: updatedCount });
+        res.json({
+            success: true,
+            message: `Approved ${result.approvedCount} pending requests.`,
+            count: result.approvedCount,
+            unmatchedCount: result.unmatchedCount,
+            unmatched: result.unmatched
+        });
     } catch (error) {
         console.error('[T2E] Approve All Error:', error);
         res.status(500).json({ error: 'Failed to approve all requests' });
@@ -865,7 +1063,8 @@ export const approveAllTokenRequests = async (req, res) => {
 export const markAllPayoutsDone = async (req, res) => {
     try {
         const { txReference } = req.body;
-        const result = await prisma.t2EPayoutRequest.updateMany({
+        const db = store.prisma || prisma;
+        const result = await db.t2EPayoutRequest.updateMany({
             where: { status: 'APPROVED' },
             data: {
                 status: 'SENT',
@@ -875,7 +1074,7 @@ export const markAllPayoutsDone = async (req, res) => {
             }
         });
 
-        res.json({ success: true, message: `Marked ${result.count} approved requests as SENT.` });
+        res.json({ success: true, message: `Marked ${result.count} approved requests as SENT.`, count: result.count });
     } catch (error) {
         console.error('[T2E] Mark All Done Error:', error);
         res.status(500).json({ error: 'Failed to mark requests as SENT' });
@@ -889,7 +1088,8 @@ export const rejectBulkTokenRequests = async (req, res) => {
             return res.status(400).json({ error: 'Request body must contain an array of ids' });
         }
 
-        const updatedCount = await prisma.$transaction(async (tx) => {
+        const db = store.prisma || prisma;
+        const updatedCount = await db.$transaction(async (tx) => {
             const pendingRequests = await tx.t2EPayoutRequest.findMany({
                 where: {
                     id: { in: ids },

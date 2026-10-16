@@ -39,8 +39,12 @@ export function collectEnvErrors(env = process.env) {
     errors.push('FRONTEND_URL must be an explicit https origin (no wildcard)');
   }
   if (!env.ADMIN_PORTAL_KEY) errors.push('ADMIN_PORTAL_KEY is required');
-  if (env.BAG_TOKEN_ADDRESS && env.BAG_TOKEN_ADDRESS.toLowerCase() === ZERO_ADDRESS) {
-    errors.push('BAG_TOKEN_ADDRESS must not be the zero address');
+  if (!env.BAG_TOKEN_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(env.BAG_TOKEN_ADDRESS) || env.BAG_TOKEN_ADDRESS.toLowerCase() === ZERO_ADDRESS) {
+    errors.push('BAG_TOKEN_ADDRESS must be a valid non-zero EVM contract address');
+  }
+  const treasury = env.TREASURY_WALLET || env.TREASURY_ADDRESS;
+  if (!treasury || !/^0x[a-fA-F0-9]{40}$/.test(treasury) || treasury.toLowerCase() === ZERO_ADDRESS) {
+    errors.push('TREASURY_WALLET (or TREASURY_ADDRESS) must be a valid non-zero EVM address');
   }
   return errors;
 }
@@ -98,6 +102,7 @@ export const config = {
   moralisApiKey: process.env.MORALIS_API_KEY || '',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   bagTokenAddress: process.env.BAG_TOKEN_ADDRESS || '',
+  treasuryAddress: process.env.TREASURY_WALLET || process.env.TREASURY_ADDRESS || '',
   minimumBagForUltimate: Number(process.env.MIN_BAG_REQUIRED || '10000'),
   cexEncryptionKey: process.env.CEX_ENCRYPTION_KEY || (isDev ? devRandom(32) : ''),
   providerHealthTimeoutMs: Number(process.env.PROVIDER_HEALTH_TIMEOUT_MS || '5000'),

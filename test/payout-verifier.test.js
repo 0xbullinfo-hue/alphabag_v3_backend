@@ -72,6 +72,7 @@ test('verifyTransfer parses mock receipt logs correctly', async () => {
         to,
         minAmountWei: 1000n,
         tokenAddress: token,
+        treasuryAddress: '0x9999999999999999999999999999999999999999',
         minConfirmations: 5,
         client: mockClient
     });
@@ -79,3 +80,80 @@ test('verifyTransfer parses mock receipt logs correctly', async () => {
     assert.equal(result.verified, true);
     assert.equal(result.totalTransferred, 1000n);
 });
+
+test('verifyTransfer rejects when no matching logs or insufficient amount', async () => {
+    const to = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+    const token = '0x1111111111111111111111111111111111111111';
+    const txHash = '0x' + 'f'.repeat(64);
+
+    const mockClient = {
+        getTransactionReceipt: async () => ({
+            status: 'success',
+            blockNumber: 1000n,
+            logs: []
+        }),
+        getBlockNumber: async () => 1020n
+    };
+
+    const result = await verifyTransfer({
+        txHash,
+        to,
+        minAmountWei: 0n,
+        tokenAddress: token,
+        treasuryAddress: '0x9999999999999999999999999999999999999999',
+        client: mockClient
+    });
+
+    assert.equal(result.verified, false);
+    assert.match(result.error, /No matching Transfer events found/i);
+});
+
+test('verifyBatchTransfers decodes multiple recipient transfers', async () => {
+    const token = '0x1111111111111111111111111111111111111111';
+    const treasury = '0x9999999999999999999999999999999999999999';
+    const recipient1 = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+    const recipient2 = '0x0000000000000000000000000000000000000001';
+    const txHash = '0x' + 'e'.repeat(64);
+
+    const mockClient = {
+        getTransactionReceipt: async () => ({
+            status: 'success',
+            blockNumber: 5000n,
+            logs: [
+                {
+                    address: token,
+                    topics: [
+                        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+                        '0x0000000000000000000000009999999999999999999999999999999999999999',
+                        '0x000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa96045'
+                    ],
+                    data: '0x00000000000000000000000000000000000000000000000000000000000001f4' // 500
+                },
+                {
+                    address: token,
+                    topics: [
+                        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+                        '0x0000000000000000000000009999999999999999999999999999999999999999',
+                        '0x0000000000000000000000000000000000000000000000000000000000000001'
+                    ],
+                    data: '0x00000000000000000000000000000000000000000000000000000000000003e8' // 1000
+                }
+            ]
+        }),
+        getBlockNumber: async () => 5020n
+    };
+
+    const { verifyBatchTransfers } = await import('../src/services/payoutVerifier.js');
+    const result = await verifyBatchTransfers({
+        txHash,
+        tokenAddress: token,
+        treasuryAddress: treasury,
+        minConfirmations: 12,
+        client: mockClient
+    });
+
+    assert.equal(result.verified, true);
+    assert.equal(result.transfersByRecipient.get(normalizeAddress(recipient1)), 500n);
+    assert.equal(result.transfersByRecipient.get(normalizeAddress(recipient2)), 1000n);
+});
+
