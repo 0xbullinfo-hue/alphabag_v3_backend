@@ -29,31 +29,24 @@ function checkEconomicRateLimit(userId, action = 'claim', cooldownMs = 3000) {
     return true;
 }
 
-async function verifyEconomicCaptcha(req) {
-    const secret = process.env.CAPTCHA_SECRET_KEY;
-    if (!secret) {
-        if (config.isProduction) {
-            return { valid: false, error: 'CAPTCHA service is not configured on server', status: 503 };
-        }
-        return { valid: true };
+import { verifyRequestCaptcha } from '../services/captchaService.js';
+
+export async function verifyEconomicCaptcha(req) {
+    return verifyRequestCaptcha(req);
+}
+
+// Per-user mission claim rate limiter (max 10 claims per minute)
+const userMissionRateLimits = new Map();
+export function checkMissionClaimRateLimit(userId, maxPerMinute = 10) {
+    const now = Date.now();
+    const windowMs = 60 * 1000;
+    const timestamps = (userMissionRateLimits.get(userId) || []).filter(t => now - t < windowMs);
+    if (timestamps.length >= maxPerMinute) {
+        return false;
     }
-    const token = req.body?.captchaToken || req.headers['x-captcha-token'];
-    if (!token) {
-        return { valid: false, error: 'CAPTCHA token required for this action', status: 400 };
-    }
-    try {
-        const verifyUrl = process.env.CAPTCHA_VERIFY_URL || 'https://hcaptcha.com/siteverify';
-        const response = await fetch(verifyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ secret, response: token })
-        });
-        const data = await response.json();
-        return data.success ? { valid: true } : { valid: false, error: 'CAPTCHA verification failed', status: 400 };
-    } catch (err) {
-        console.error('[CAPTCHA] Verification error:', err);
-        return { valid: false, error: 'CAPTCHA service unreachable', status: 502 };
-    }
+    timestamps.push(now);
+    userMissionRateLimits.set(userId, timestamps);
+    return true;
 }
 
 
@@ -373,6 +366,18 @@ export const getLeaderboard = async (req, res) => {
 export const claimMission = async (req, res) => {
     try {
         const userId = req.user.id;
+
+        // Rate limit: max 10 mission claims per minute
+        if (!checkMissionClaimRateLimit(userId, 10)) {
+            return res.status(429).json({ error: 'Too many mission claims. Rate limit is 10 claims per minute.' });
+        }
+
+        // CAPTCHA verification
+        const captchaCheck = await verifyEconomicCaptcha(req);
+        if (!captchaCheck.valid) {
+            return res.status(captchaCheck.status || 400).json({ error: captchaCheck.error });
+        }
+
         let { missionId, proofLink, feedback, taskId, taskLink } = req.body;
         
         const userObj = await store.findOne('users', { id: userId });
@@ -533,9 +538,18 @@ export const requestBagPayout = async (req, res) => {
         const globalConfig = await store.findOne('t2e_config', { id: 'global_config' });
         const minimum = globalConfig?.minimumClaimBalance ?? 500;
 
-        const result = await store.prisma.$transaction(async (tx) => {
+        const db = store.prisma || prisma;
+        const result = await db.$transaction(async (tx) => {
             const user = await tx.user.findUnique({ where: { id: userId } });
             if (!user) return { error: 'User not found in T2E Registry', status: 404 };
+
+            // Sybil eligibility gate: user account must be >= 24 hours old
+            if (user.createdAt) {
+                const createdAt = new Date(user.createdAt).getTime();
+                if (Date.now() - createdAt < 24 * 60 * 60 * 1000) {
+                    return { error: 'Account must be at least 24 hours old before requesting payouts.', status: 403 };
+                }
+            }
 
             if ((Number(user.items) || 0) < minimum) {
                 return { error: `Minimum payout of ${minimum.toLocaleString()} ITEMS required.`, status: 400 };

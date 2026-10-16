@@ -2,28 +2,7 @@ import { config } from '../config/env.js';
 import { claimMission } from './t2eController.js';
 import { isValidEvmAddress } from '../utils/address.js';
 
-// === CAPTCHA VERIFICATION HELPER ===
-async function verifyCaptcha(token) {
-    const secret = process.env.CAPTCHA_SECRET_KEY;
-    if (!secret) {
-        // Fail closed in production (F-08)
-        return config.isProduction ? false : true;
-    }
-    if (!token) return false;
-    try {
-        const verifyUrl = process.env.CAPTCHA_VERIFY_URL || 'https://hcaptcha.com/siteverify';
-        const response = await fetch(verifyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ secret, response: token })
-        });
-        const data = await response.json();
-        return Boolean(data.success);
-    } catch (err) {
-        console.error('[CAPTCHA] Verification error:', err);
-        return false;
-    }
-}
+import { verifyCaptcha } from '../services/captchaService.js';
 import crypto from 'crypto';
 
 function isValidHttpUrl(string) {
@@ -197,9 +176,9 @@ export const claimPoints = async (req, res) => {
         }
 
         const captchaToken = req.body?.captchaToken || req.headers?.['x-captcha-token'];
-        const isCaptchaValid = await verifyCaptcha(captchaToken);
-        if (!isCaptchaValid) {
-            return res.status(400).json({ error: 'CAPTCHA verification failed or required' });
+        const captchaResult = await verifyCaptcha(captchaToken);
+        if (!captchaResult.valid) {
+            return res.status(captchaResult.status || 400).json({ error: captchaResult.error || 'CAPTCHA verification failed or required' });
         }
 
         let campaigns = await store.read('airdrop');
