@@ -9,6 +9,7 @@ const originalStoreMethods = {
     read: store.read,
     write: store.write,
     findOne: store.findOne,
+    findMany: store.findMany,
     create: store.create,
     update: store.update,
     prisma: store.prisma,
@@ -25,6 +26,12 @@ const createMockStore = (seed = {}) => {
         const items = db[collection] ?? [];
         if (!Array.isArray(items)) return null;
         return structuredClone(items.find((item) => Object.keys(query).every((key) => item[key] === query[key])) ?? null);
+    };
+    store.findMany = async (collection, query = {}) => {
+        const items = db[collection] ?? [];
+        if (!Array.isArray(items)) return [];
+        if (Object.keys(query).length === 0) return structuredClone(items);
+        return structuredClone(items.filter((item) => Object.keys(query).every((key) => item[key] === query[key])));
     };
     store.create = async (collection, item) => {
         const next = db[collection] ?? [];
@@ -93,6 +100,7 @@ const restoreStore = () => {
     store.read = originalStoreMethods.read;
     store.write = originalStoreMethods.write;
     store.findOne = originalStoreMethods.findOne;
+    store.findMany = originalStoreMethods.findMany;
     store.create = originalStoreMethods.create;
     store.update = originalStoreMethods.update;
     store.prisma = originalStoreMethods.prisma;

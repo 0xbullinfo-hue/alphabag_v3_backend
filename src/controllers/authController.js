@@ -374,19 +374,29 @@ export const getMe = async (req, res) => {
 export const getReferrals = async (req, res) => {
     try {
         const userId = req.user?.id;
-        const allUsers = await store.read('users');
-        const user = allUsers.find(u => u.id === userId);
+        const user = await store.findOne('users', { id: userId });
         if (!user) return res.status(404).json({ error: 'User not found' });
 
-        const directReferrals = allUsers.filter(u => u.referredBy === userId);
+        const directReferrals = await store.findMany('users', { referredBy: userId });
+
+        const maskedReferrals = directReferrals.map(r => {
+            const rawWallet = r.preferredWallet || r.verifiedWallet || r.submittedWallet || r.id || '';
+            const handle = rawWallet.startsWith('0x') && rawWallet.length >= 10
+                ? `${rawWallet.slice(0, 6)}...${rawWallet.slice(-4)}`
+                : (rawWallet.length > 4 ? `${rawWallet.slice(0, 4)}***` : `${rawWallet}***`);
+
+            return {
+                id: r.id,
+                handle,
+                pointsEarned: Number(r.items) || 0,
+                joinedAt: r.createdAt || r.lastActive
+            };
+        });
+
         res.json({
             referralCode: user.referralCode,
             totalReferrals: directReferrals.length,
-            referrals: directReferrals.map(r => ({
-                id: r.id,
-                email: r.email,
-                joinedAt: r.createdAt || r.lastActive
-            }))
+            referrals: maskedReferrals
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch referrals' });

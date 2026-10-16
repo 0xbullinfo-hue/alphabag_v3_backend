@@ -152,17 +152,42 @@ export const getTreasuryStatus = async (req, res) => {
             config = { id: 'global_config', minimumClaimBalance: 500 };
             await store.create('t2e_config', config);
         }
-        
-        // Intelligence Aggregation (Simulated for JSON store)
-        const allClaims = await store.read('t2e_claims');
-        const allUsers = await store.read('users');
-        const requests = await store.read('t2e_payout_requests');
 
-        const totalEarned = allClaims.reduce((sum, c) => sum + (Number(c.rewardTokens) || 0), 0);
-        const totalPending = allUsers.reduce((sum, u) => sum + (Number(u.t2eBagBalance) || 0), 0);
-        const totalDisbursed = requests
-            .filter(r => r.status === 'APPROVED')
-            .reduce((sum, r) => sum + (Number(r.expectedTokens) || 0), 0);
+        let totalEarned = 0;
+        let totalPending = 0;
+        let totalDisbursed = 0;
+        let aggregatedViaPrisma = false;
+
+        try {
+            if (prisma.t2EClaim && prisma.user && prisma.t2EPayoutRequest) {
+                const [claimSum, userSum, payoutSum] = await Promise.all([
+                    prisma.t2EClaim.aggregate({ _sum: { rewardTokens: true } }),
+                    prisma.user.aggregate({ _sum: { items: true } }),
+                    prisma.t2EPayoutRequest.aggregate({
+                        where: { status: 'APPROVED' },
+                        _sum: { expectedTokens: true }
+                    })
+                ]);
+                totalEarned = Number(claimSum._sum?.rewardTokens || 0);
+                totalPending = Number(userSum._sum?.items || 0);
+                totalDisbursed = Number(payoutSum._sum?.expectedTokens || 0);
+                aggregatedViaPrisma = true;
+            }
+        } catch (_) {
+            // Prisma unavailable -> fall through to store fallback
+        }
+
+        if (!aggregatedViaPrisma) {
+            const allClaims = await store.read('t2e_claims');
+            const allUsers = await store.read('users');
+            const requests = await store.read('t2e_payout_requests');
+
+            totalEarned = allClaims.reduce((sum, c) => sum + (Number(c.rewardTokens) || 0), 0);
+            totalPending = allUsers.reduce((sum, u) => sum + (Number(u.items || u.t2eBagBalance) || 0), 0);
+            totalDisbursed = requests
+                .filter(r => r.status === 'APPROVED')
+                .reduce((sum, r) => sum + (Number(r.expectedTokens) || 0), 0);
+        }
 
         res.json({
             ...config,
@@ -183,14 +208,12 @@ export const getTreasuryStatus = async (req, res) => {
 export const getUserEarnProfile = async (req, res) => {
     try {
         const userId = req.user.id;
-        const users = await store.read('users');
-        const user = users.find(u => u.id && typeof u.id === 'string' && userId && typeof userId === 'string' && u.id.toLowerCase() === userId.toLowerCase());
-        const config = await store.findOne('t2e_config', { id: 'global_config' });
-        const claims = await store.read('t2e_claims');
-
+        const user = await store.findOne('users', { id: userId });
         if (!user) return res.status(404).json({ error: 'User not found in T2E Registry' });
 
-        const userClaims = claims.filter(c => c.userId === userId).map(c => c.missionId);
+        const claims = await store.findMany('t2e_claims', { userId });
+        const userClaims = claims.map(c => c.missionId);
+        const config = await store.findOne('t2e_config', { id: 'global_config' });
 
         res.json({
             id: user.id,
@@ -324,35 +347,89 @@ export const streamActivity = (req, res) => {
     });
 };
 
-// ─── LEADERBOARD ──────────────────────────────────────────────────────────────
+// ─── LEADERBOARD (60-SECOND CACHED) ──────────────────────────────────────────
+
+let leaderboardCache = { data: null, expiresAt: 0 };
+export function clearLeaderboardCache() {
+    leaderboardCache = { data: null, expiresAt: 0 };
+}
 
 export const getLeaderboard = async (req, res) => {
     try {
-        const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const claims = await store.read('t2e_claims');
-        const users = await store.read('users');
+        const now = Date.now();
+        if (leaderboardCache.data && now < leaderboardCache.expiresAt) {
+            return res.json(leaderboardCache.data);
+        }
 
-        // Filter and Group by userId
-        const stats = claims
-            .filter(c => new Date(c.createdAt) >= last24h)
-            .reduce((acc, c) => {
-                acc[c.userId] = (acc[c.userId] || 0) + (Number(c.rewardTokens) || 0);
-                return acc;
-            }, {});
+        const last24h = new Date(now - 24 * 60 * 60 * 1000);
+        let formatted = [];
+        let fetchedViaPrisma = false;
 
-        const sorted = Object.entries(stats)
-            .map(([userId, points]) => ({ userId, points }))
-            .sort((a,b) => b.points - a.points)
-            .slice(0, 10);
+        try {
+            if (prisma.t2EClaim && typeof prisma.t2EClaim.groupBy === 'function') {
+                const grouped = await prisma.t2EClaim.groupBy({
+                    by: ['userId'],
+                    where: { createdAt: { gte: last24h } },
+                    _sum: { rewardTokens: true },
+                    orderBy: { _sum: { rewardTokens: 'desc' } },
+                    take: 10
+                });
 
-        const formatted = sorted.map(s => {
-            const user = users.find(u => u.id && typeof u.id === 'string' && s.userId && typeof s.userId === 'string' && u.id.toLowerCase() === s.userId.toLowerCase());
-            const address = user?.verifiedWallet || user?.id || 'Unknown Node';
-            return {
-                handle: address.startsWith('0x') ? `${address.slice(0, 6)}...${address.slice(-4)}` : address,
-                points: s.points
-            };
-        });
+                const userIds = grouped.map(g => g.userId);
+                const users = userIds.length > 0 && prisma.user ? await prisma.user.findMany({
+                    where: { id: { in: userIds } },
+                    select: { id: true, verifiedWallet: true, preferredWallet: true }
+                }) : [];
+                const userMap = new Map(users.map(u => [u.id.toLowerCase(), u]));
+
+                formatted = grouped.map(s => {
+                    const user = userMap.get(s.userId.toLowerCase());
+                    const address = user?.preferredWallet || user?.verifiedWallet || s.userId || 'Unknown Node';
+                    return {
+                        handle: address.startsWith('0x') && address.length >= 10
+                            ? `${address.slice(0, 6)}...${address.slice(-4)}`
+                            : address,
+                        points: Number(s._sum?.rewardTokens || 0)
+                    };
+                });
+                fetchedViaPrisma = true;
+            }
+        } catch (_) {
+            // Prisma unavailable -> fall through to store fallback
+        }
+
+        if (!fetchedViaPrisma) {
+            const claims = await store.read('t2e_claims');
+            const users = await store.read('users');
+
+            const stats = claims
+                .filter(c => new Date(c.createdAt) >= last24h)
+                .reduce((acc, c) => {
+                    acc[c.userId] = (acc[c.userId] || 0) + (Number(c.rewardTokens) || 0);
+                    return acc;
+                }, {});
+
+            const sorted = Object.entries(stats)
+                .map(([userId, points]) => ({ userId, points }))
+                .sort((a, b) => b.points - a.points)
+                .slice(0, 10);
+
+            formatted = sorted.map(s => {
+                const user = users.find(u => u.id && typeof u.id === 'string' && s.userId && typeof s.userId === 'string' && u.id.toLowerCase() === s.userId.toLowerCase());
+                const address = user?.preferredWallet || user?.verifiedWallet || user?.id || s.userId || 'Unknown Node';
+                return {
+                    handle: address.startsWith('0x') && address.length >= 10
+                        ? `${address.slice(0, 6)}...${address.slice(-4)}`
+                        : address,
+                    points: s.points
+                };
+            });
+        }
+
+        leaderboardCache = {
+            data: formatted,
+            expiresAt: now + 60_000
+        };
 
         res.json(formatted);
     } catch (error) {
@@ -412,8 +489,7 @@ export const claimMission = async (req, res) => {
         // "already claimed?" check before any of them have written yet.
         const lockKey = `${userId.toLowerCase()}:${missionId}`;
         const result = await withClaimLock(lockKey, async () => {
-            const claims = await store.read('t2e_claims');
-            const userClaims = claims.filter(c => c.userId.toLowerCase() === userId.toLowerCase() && c.missionId === missionId);
+            const userClaims = await store.findMany('t2e_claims', { userId, missionId });
 
             // Check frequency limits
             const now = new Date();
@@ -494,7 +570,7 @@ export const claimMission = async (req, res) => {
             const activity = {
                 id: crypto.randomUUID(),
                 userHandle: updatedUser?.verifiedWallet?.slice(0, 8) || userId.slice(0, 8),
-                taskType: mission.type,
+                taskType: mission.type || mission.category || 'SOCIAL',
                 pointsEarned: Number(mission.rewardTokens),
                 createdAt: new Date().toISOString()
             };
@@ -931,16 +1007,68 @@ export const markPayoutDone = async (req, res) => {
 
 export const getAdminActivity = async (req, res) => {
     try {
-        const claims = await store.read('t2e_claims');
-        const users = await store.read('users');
-        const missions = await store.read('t2e_missions');
+        let enriched = null;
+        try {
+            if (prisma.t2EClaim) {
+                const recentClaims = await prisma.t2EClaim.findMany({
+                    take: 50,
+                    orderBy: { createdAt: 'desc' },
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                verifiedWallet: true,
+                                preferredWallet: true,
+                                submittedWallet: true
+                            }
+                        },
+                        mission: {
+                            select: {
+                                id: true,
+                                title: true,
+                                type: true
+                            }
+                        }
+                    }
+                });
 
-        const enriched = claims.map(c => ({
-            ...c,
-            user: users.find(u => u.id === c.userId) || { walletAddress: c.userId },
-            mission: missions.find(m => m.id === c.missionId) || { title: 'Unknown', type: 'SYSTEM' },
-            pointsEarned: Number(c.rewardTokens)
-        })).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 100);
+                enriched = recentClaims.map(c => ({
+                    id: c.id,
+                    userId: c.userId,
+                    missionId: c.missionId,
+                    proofLink: c.proofLink,
+                    feedback: c.feedback,
+                    rewardTokens: c.rewardTokens,
+                    rewardXP: c.rewardXP,
+                    createdAt: c.createdAt,
+                    pointsEarned: Number(c.rewardTokens),
+                    user: c.user ? {
+                        id: c.user.id,
+                        walletAddress: c.user.preferredWallet || c.user.verifiedWallet || c.user.submittedWallet || c.user.id
+                    } : { walletAddress: c.userId },
+                    mission: c.mission || { title: 'Unknown', type: 'SYSTEM' }
+                }));
+            }
+        } catch (_) {
+            // Prisma unavailable -> fall through to store fallback
+        }
+
+        if (!enriched) {
+            const claims = await store.read('t2e_claims');
+            const users = await store.read('users');
+            const missions = await store.read('t2e_missions');
+
+            enriched = claims
+                .slice()
+                .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))
+                .slice(0, 50)
+                .map(c => ({
+                    ...c,
+                    user: users.find(u => u.id === c.userId) || { walletAddress: c.userId },
+                    mission: missions.find(m => m.id === c.missionId) || { title: 'Unknown', type: 'SYSTEM' },
+                    pointsEarned: Number(c.rewardTokens)
+                }));
+        }
 
         res.json(enriched);
     } catch (error) {
