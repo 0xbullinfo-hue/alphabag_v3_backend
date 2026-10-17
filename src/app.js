@@ -21,6 +21,7 @@ import proxyRoutes from './routes/proxyRoutes.js';
 import bubblemapsProxyRouter from './routes/bubblemapsProxy.js';
 import publicRoutes from './routes/publicRoutes.js';
 import projectRoutes from './routes/projectRoutes.js';
+import communityRoutes from './routes/communityRoutes.js';
 import { verifyToken, verifyAdmin } from './middleware/authMiddleware.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import providerHealthRoutes from './routes/providerHealthRoutes.js';
@@ -126,6 +127,7 @@ app.use('/api/cex', cexRouter);
 app.use('/api/proxy/bubblemaps', proxyLimiter, bubblemapsProxyRouter);
 app.use('/api/proxy', proxyRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/community', communityRoutes);
 app.use('/api', publicRoutes);
 app.use('/api/system/health', providerHealthRoutes);
 
