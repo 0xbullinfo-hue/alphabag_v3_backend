@@ -19,6 +19,11 @@ marketRouter.get('/token-price', tokenPriceController.getTokenPrices);
 const dexRouter = express.Router();
 dexRouter.get('/search', dexController.searchPairs);
 dexRouter.get('/tokens/:tokenAddress', dexController.getTokenPairs);
+dexRouter.get('/tokens/:chainId/:tokenAddresses', dexController.getMultiTokenPairs);
+dexRouter.get('/pairs/:chainId/:pairAddress', dexController.getPairByAddress);
+dexRouter.get('/metas/trending', dexController.getTrendingMetas);
+dexRouter.get('/boosts/latest', dexController.getLatestBoosts);
+dexRouter.get('/community-takeovers', dexController.getCommunityTakeovers);
 
 const whaleRouter = express.Router();
 whaleRouter.get('/address/:address/transactions', getAddressTransactions);
