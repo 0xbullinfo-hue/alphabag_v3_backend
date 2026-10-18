@@ -1,5 +1,5 @@
 import express from 'express';
-import { verifyToken } from '../middleware/authMiddleware.js';
+import { optionalAuth, verifyToken } from '../middleware/authMiddleware.js';
 import {
   createComment,
   createCommunity,
@@ -18,20 +18,21 @@ import {
 } from '../controllers/communityController.js';
 
 const router = express.Router();
-router.use(verifyToken);
-router.get('/communities', listCommunities);
-router.post('/communities', createCommunity);
-router.post('/communities/:slug/join', joinCommunity);
-router.delete('/communities/:slug/join', leaveCommunity);
-router.get('/discussions', listDiscussions);
-router.post('/discussions', createDiscussion);
-router.get('/discussions/:id', getDiscussion);
-router.post('/discussions/:id/comments', createComment);
-router.post('/discussions/:id/vote', voteDiscussion);
-router.get('/ads', getCommunityAds);
-router.get('/trending', getTrendingTopics);
-router.get('/analysts', getTopAnalysts);
-router.get('/podcast', getLivePodcastState);
-router.post('/podcast/mic', requestPodcastMic);
+
+router.get('/communities', optionalAuth, listCommunities);
+router.get('/discussions', optionalAuth, listDiscussions);
+router.get('/discussions/:id', optionalAuth, getDiscussion);
+router.get('/ads', optionalAuth, getCommunityAds);
+router.get('/trending', optionalAuth, getTrendingTopics);
+router.get('/analysts', optionalAuth, getTopAnalysts);
+router.get('/podcast', optionalAuth, getLivePodcastState);
+
+router.post('/communities', verifyToken, createCommunity);
+router.post('/communities/:slug/join', verifyToken, joinCommunity);
+router.delete('/communities/:slug/join', verifyToken, leaveCommunity);
+router.post('/discussions', verifyToken, createDiscussion);
+router.post('/discussions/:id/comments', verifyToken, createComment);
+router.post('/discussions/:id/vote', verifyToken, voteDiscussion);
+router.post('/podcast/mic', verifyToken, requestPodcastMic);
 
 export default router;
