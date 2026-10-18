@@ -82,6 +82,10 @@ model User {
   portfolioSnapshots  PortfolioSnapshot[]
   defiPositions       DefiPosition[]
   cexAssets           CexAsset[]
+  communityMemberships CommunityMembership[]
+  communityDiscussions CommunityDiscussion[]
+  communityComments   CommunityComment[]
+  communityVotes      CommunityVote[]
 
   tokenVersion        Int       @default(0)
   createdAt           DateTime  @default(now())
@@ -448,4 +452,86 @@ model CexAsset {
 
   @@index([userId, connectionId, accountType])
   @@map("cex_assets")
+}
+
+// ─── COMMUNITY DISCUSSIONS ───────────────────────────────────────────────────
+
+model Community {
+  id          String                @id @default(uuid())
+  slug        String                @unique
+  name        String
+  description String                @default("")
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  memberships CommunityMembership[]
+  discussions CommunityDiscussion[]
+
+  @@map("communities")
+}
+
+model CommunityMembership {
+  id          String    @id @default(uuid())
+  communityId String
+  userId      String
+  createdAt   DateTime  @default(now())
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, userId])
+  @@index([userId, createdAt])
+  @@map("community_memberships")
+}
+
+model CommunityDiscussion {
+  id          String             @id @default(uuid())
+  communityId String
+  authorId    String
+  title       String
+  ticker      String?
+  category    String?
+  sentiment   String?
+  content     String
+  upvotes     Int                @default(0)
+  downvotes   Int                @default(0)
+  isPinned    Boolean            @default(false)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  community   Community          @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  author      User               @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments    CommunityComment[]
+  votes       CommunityVote[]
+
+  @@index([communityId, createdAt])
+  @@map("community_discussions")
+}
+
+model CommunityComment {
+  id           String              @id @default(uuid())
+  discussionId String
+  authorId     String
+  parentId     String?
+  content      String
+  displayMode  String              @default("VISIBLE")
+  createdAt    DateTime            @default(now())
+  discussion   CommunityDiscussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  author       User                @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent       CommunityComment?   @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies      CommunityComment[]  @relation("CommentReplies")
+
+  @@index([discussionId, createdAt])
+  @@index([authorId, discussionId])
+  @@map("community_comments")
+}
+
+model CommunityVote {
+  id           String              @id @default(uuid())
+  discussionId String
+  userId       String
+  type         String
+  createdAt    DateTime            @default(now())
+  discussion   CommunityDiscussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([discussionId, userId])
+  @@map("community_votes")
 }

@@ -2160,3 +2160,190 @@ paths:
             text/csv:
               schema:
                 type: string
+
+/community/communities:
+    get:
+      tags: [Community]
+      summary: List AlphaFeed communities and the caller's membership state
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Community list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [slug, name, description, memberCount, isMember]
+                  properties:
+                    slug: { type: string }
+                    name: { type: string }
+                    description: { type: string }
+                    memberCount: { type: integer }
+                    isMember: { type: boolean }
+  /community/communities/{slug}/join:
+    post:
+      tags: [Community]
+      summary: Join a community to read full threads and participate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Membership active
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  slug: { type: string }
+                  isMember: { type: boolean }
+        '404': { description: Community not found }
+    delete:
+      tags: [Community]
+      summary: Leave a community
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Membership removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  slug: { type: string }
+                  isMember: { type: boolean }
+        '404': { description: Community not found }
+  /community/discussions:
+    get:
+      tags: [Community]
+      summary: List discussion previews or full threads based on membership
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: communitySlug
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Discussion feed. Non-members receive previews and only their own comments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object }
+    post:
+      tags: [Community]
+      summary: Create a thread in a joined community
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content, communitySlug]
+              properties:
+                title: { type: string, minLength: 3, maxLength: 160 }
+                content: { type: string, maxLength: 12000 }
+                communitySlug: { type: string }
+                ticker: { type: string, maxLength: 24 }
+                category: { type: string }
+                sentiment: { type: string, enum: [BULLISH, BEARISH, NEUTRAL] }
+      responses:
+        '201':
+          description: Thread created
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string }, title: { type: string }, content: { type: string }, previewOnly: { type: boolean } } }
+        '403': { description: Join the community before creating a thread }
+  /community/discussions/{id}:
+    get:
+      tags: [Community]
+      summary: Retrieve a full thread for members or a preview for non-members
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Thread or access-limited preview
+          content:
+            application/json:
+              schema: { type: object, properties: { id: { type: string }, previewOnly: { type: boolean }, previewText: { type: string }, content: { type: string } } }
+        '404': { description: Thread not found }
+  /community/discussions/{id}/comments:
+    post:
+      tags: [Community]
+      summary: Comment on a preview or full thread; non-members see only their own comment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content, displayMode]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 2000 }
+                parentId: { type: string }
+                displayMode: { type: string, enum: [VISIBLE, ANONYMOUS] }
+      responses:
+        '201':
+          description: Comment created; anonymous identity remains stored privately for moderation
+          content:
+            application/json:
+              schema: { type: object, properties: { comment: { type: object, properties: { id: { type: string }, authorName: { type: string }, displayMode: { type: string }, content: { type: string } } } } }
+        '404': { description: Thread not found }
+  /community/discussions/{id}/vote:
+    post:
+      tags: [Community]
+      summary: Toggle or change a thread vote (members only)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [UP, DOWN] }
+      responses:
+        '200':
+          description: Vote result
+          content:
+            application/json:
+              schema: { type: object, properties: { success: { type: boolean }, userVoted: { type: string, nullable: true }, upvotes: { type: integer }, downvotes: { type: integer } } }
+        '403': { description: Join the community to vote }
