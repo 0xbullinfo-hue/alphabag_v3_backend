@@ -2,12 +2,19 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../services/storeService.js';
 
 export const DEFAULT_COMMUNITIES = [
-  { slug: 'general', name: 'General', description: 'Open crypto conversations and community questions.' },
-  { slug: 'tokenomics', name: 'Tokenomics', description: 'Supply, vesting, emissions, and token design.' },
-  { slug: 'utility-yield', name: 'Utility & Yield', description: 'Protocols, use cases, and yield opportunities.' },
-  { slug: 'project-reviews', name: 'Project Reviews', description: 'Community-led project research and reviews.' },
-  { slug: 'alpha-calls', name: 'Alpha Calls', description: 'Trade ideas and due diligence.' },
-  { slug: 'security-audits', name: 'Security & Audits', description: 'Contract safety, audits, and risk discussion.' },
+  { slug: 'defi', name: 'DeFi & Liquidity', description: 'Decentralized exchanges, liquidity pools, lending, and yield mechanics.' },
+  { slug: 'degen', name: 'Degen Plays & Scalping', description: 'High-volatility setups, sniper calls, launchpads, and momentum plays.' },
+  { slug: 'memes', name: 'Memecoins & Culture', description: 'Viral memecoin trends, narrative rotations, and community takeovers.' },
+  { slug: 'ai-depin', name: 'AI Agents & DePIN', description: 'Autonomous crypto AI agents, decentralized compute, and GPU networks.' },
+  { slug: 'layer1-layer2', name: 'Layer 1 & Layer 2 Rollups', description: 'Ethereum L2s, Solana, Bitcoin layers, and alternative L1 ecosystems.' },
+  { slug: 'rwa', name: 'Real World Assets (RWA)', description: 'Tokenized US Treasuries, institutional funds, credit, and commodities.' },
+  { slug: 'security-audits', name: 'Security & Audits', description: 'Exploit forensic breakdowns, formal audits, and vulnerability alerts.' },
+  { slug: 'tokenomics', name: 'Tokenomics & Vesting', description: 'Cliff unlocks, emission curves, FDV analysis, and buyback structures.' },
+  { slug: 'airdrops', name: 'Airdrops & Testnets', description: 'Retroactive guides, testnet quests, node runners, and points systems.' },
+  { slug: 'perp-leverage', name: 'Perps & Leverage', description: 'Funding rates, open interest, liquidations, and futures positioning.' },
+  { slug: 'restaking-lst', name: 'Staking & Restaking', description: 'EigenLayer, Symbiotic, LRT yields, and shared security.' },
+  { slug: 'cross-chain', name: 'Cross-Chain & Bridges', description: 'Interoperability, LayerZero, Wormhole, CCIP, and bridge security.' },
+  { slug: 'general', name: 'General Discussion', description: 'Open market discussions, news reaction, and community questions.' },
 ];
 
 const getUserId = (req) => !req.user?.isAdmin && typeof req.user?.id === 'string' ? req.user.id : null;
@@ -261,4 +268,113 @@ export async function voteDiscussion(req, res) {
     console.error('[Community] vote failed:', error);
     res.status(500).json({ error: 'Could not record your reaction.' });
   }
-}
+}
+export async function createCommunity(req, res, next) {
+  try {
+    const userId = getUserId(req);
+    const { name, slug, description } = req.body || {};
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      return res.status(400).json({ error: 'Community name is required (min 2 characters).' });
+    }
+    const cleanName = name.trim();
+    const cleanSlug = (slug && typeof slug === 'string' && slug.trim())
+      ? slug.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+      : cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || randomUUID().slice(0, 8);
+    const cleanDescription = (description && typeof description === 'string') ? description.trim() : '';
+
+    const existing = await prisma.community.findUnique({ where: { slug: cleanSlug } });
+    if (existing) {
+      return res.status(409).json({ error: 'A community with this identifier already exists.' });
+    }
+
+    const community = await prisma.community.create({
+      data: {
+        slug: cleanSlug,
+        name: cleanName,
+        description: cleanDescription,
+        ...(userId ? {
+          memberships: {
+            create: { userId }
+          }
+        } : {})
+      },
+      include: {
+        _count: { select: { memberships: true } },
+        memberships: userId ? { where: { userId } } : false
+      }
+    });
+
+    return res.status(201).json({
+      slug: community.slug,
+      name: community.name,
+      description: community.description,
+      memberCount: community._count?.memberships ?? 1,
+      isMember: Boolean(userId),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getCommunityAds(req, res) {
+  return res.json({
+    partnerName: 'AlphaBAG Genesis Pass',
+    badge: 'ECOSYSTEM',
+    tagline: 'Stake $BAG to earn 60% protocol fee share and unlock Alpha Desk VIP.',
+    description: 'AlphaBAG Genesis Pass holders receive perpetual fee rebates, exclusive access to Alpha Desk, and early allocations in partner project pools.',
+    ctaText: 'MINT PASS / LEARN MORE',
+    ctaUrl: '#/airdrop',
+    logoUrl: '/logo.png'
+  });
+}
+
+export async function getTrendingTopics(req, res) {
+  return res.json([
+    { ticker: '$BAG', topic: 'Genesis Staking & Fee Switch Activation', posts: 184, sentiment: 'BULLISH' },
+    { ticker: '$SOL', topic: 'Solana Breakpoint DEX Rotations', posts: 142, sentiment: 'BULLISH' },
+    { ticker: '$BTC', topic: 'Macro Liquidity & Spot ETF Inflows', posts: 98, sentiment: 'BULLISH' },
+    { ticker: '$ETH', topic: 'L2 Blob Gas & Restaking Dynamics', posts: 76, sentiment: 'NEUTRAL' },
+    { ticker: '$DEGEN', topic: 'Base Launchpad Sniper Volume Surge', posts: 64, sentiment: 'BULLISH' }
+  ]);
+}
+
+export async function getTopAnalysts(req, res) {
+  return res.json([
+    { rank: '1', wallet: '0x71C...894B', tier: 'ALPHA_VIP', score: '99.4%', focus: 'Tokenomics & Vesting' },
+    { rank: '2', wallet: '0x3F2...1A90', tier: 'ULTIMATE', score: '97.8%', focus: 'DeFi Yield & Perps' },
+    { rank: '3', wallet: '0x99A...E431', tier: 'PREMIUM', score: '95.2%', focus: 'Smart Contract Audits' },
+    { rank: '4', wallet: '0x18B...55C2', tier: 'ALPHA_VIP', score: '94.0%', focus: 'Memecoin Orderflow' },
+    { rank: '5', wallet: '0x4D1...77F8', tier: 'PREMIUM', score: '92.6%', focus: 'Airdrop Metas' }
+  ]);
+}
+
+export async function getLivePodcastState(req, res) {
+  return res.json({
+    isLive: true,
+    title: 'Alpha Stage: DEX Liquidity Rotations, Whale Inflows & Market Metas',
+    topic: '$SOL & Base Microcap Rotations • Real-Time Order Flow',
+    hostName: 'AlphaDesk Core',
+    hostWallet: '0x884...219A',
+    listenersCount: 148,
+    isListening: false,
+    stageSpeakers: [
+      { wallet: '0x884...219A', name: 'AlphaDesk Core', isHost: true, isSpeaking: true, tier: 'ALPHA_VIP' },
+      { wallet: '0x71C...894B', name: 'DeFi Researcher', isSpeaking: false, tier: 'ULTIMATE' },
+      { wallet: '0x3F2...1A90', name: 'On-Chain Forensics', isSpeaking: false, tier: 'ALPHA_VIP' }
+    ],
+    liveChat: [
+      { id: 'msg-1', authorWallet: '0x123...4567', tier: 'ALPHA_VIP', isVip: true, message: 'Massive accumulation seen on DEX aggregator volume.', timestamp: '1m ago' },
+      { id: 'msg-2', authorWallet: '0x999...1111', tier: 'PREMIUM', isVip: false, message: 'Are the token unlocks on schedule for Q4?', timestamp: 'Just now' }
+    ],
+    upvotes: 46,
+    userUpvoted: false
+  });
+}
+
+export async function requestPodcastMic(req, res) {
+  return res.json({
+    success: true,
+    queued: true,
+    message: 'Added to speaker queue. Host will open your mic shortly.'
+  });
+}

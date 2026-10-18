@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { serializeDiscussion } from '../src/controllers/communityController.js';
+import { serializeDiscussion, DEFAULT_COMMUNITIES } from '../src/controllers/communityController.js';
 
 const fixture = {
   id: 'thread-1',
@@ -48,4 +48,18 @@ test('member receives the full thread and all comments with anonymous names mask
   assert.equal(result.upvotes, 1);
   assert.equal(result.downvotes, 1);
   assert.equal(result.userVoted, 'UP');
+});
+test('DEFAULT_COMMUNITIES contains comprehensive crypto sectors including defi, degen, memes, ai-depin, rwa', () => {
+  const slugs = DEFAULT_COMMUNITIES.map(c => c.slug);
+  assert.ok(slugs.includes('defi'));
+  assert.ok(slugs.includes('degen'));
+  assert.ok(slugs.includes('memes'));
+  assert.ok(slugs.includes('ai-depin'));
+  assert.ok(slugs.includes('rwa'));
+  assert.ok(slugs.includes('tokenomics'));
+  assert.ok(slugs.includes('security-audits'));
+  assert.ok(slugs.includes('airdrops'));
+  assert.ok(slugs.includes('perp-leverage'));
+  assert.ok(slugs.includes('restaking-lst'));
+  assert.ok(slugs.includes('cross-chain'));
 });
