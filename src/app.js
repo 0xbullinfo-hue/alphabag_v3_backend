@@ -106,9 +106,49 @@ app.use('/api/admin', adminLimiter);
 app.use('/api/admin-seed', seedLimiter);
 app.use('/api', apiLimiter);
 
-// ── Health Check ─────────────────────────────────────────────────────────────
+// ── Health Check & Service Root ──────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/', (req, res) => {
+  if (req.accepts('html')) {
+    res.status(200).send(`
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <title>AlphaBAG Backend · Operational</title>
+          <style>
+            body { background: #0B0E11; color: #EAECEF; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+            .card { background: #181A20; border: 1px solid #2B313A; padding: 36px 44px; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); text-align: center; max-width: 460px; }
+            .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(14, 203, 129, 0.1); border: 1px solid rgba(14, 203, 129, 0.25); color: #0ECB81; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+            .dot { width: 8px; height: 8px; background: #0ECB81; border-radius: 50%; box-shadow: 0 0 8px #0ECB81; }
+            h1 { font-size: 24px; margin: 0 0 8px 0; font-weight: 700; color: #EAECEF; letter-spacing: -0.5px; }
+            p { font-size: 13px; color: #848E9C; margin: 0 0 24px 0; line-height: 1.5; }
+            .links { display: flex; gap: 12px; justify-content: center; font-size: 12px; font-weight: 600; }
+            a { color: #F0B90B; text-decoration: none; padding: 8px 16px; border-radius: 4px; background: rgba(240, 185, 11, 0.08); border: 1px solid rgba(240, 185, 11, 0.25); transition: all 0.15s ease; }
+            a:hover { background: rgba(240, 185, 11, 0.2); }
+            a.secondary { color: #EAECEF; background: rgba(255, 255, 255, 0.05); border-color: #2B313A; }
+            a.secondary:hover { background: rgba(255, 255, 255, 0.1); }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="badge"><div class="dot"></div> Systems Operational</div>
+            <h1>AlphaBAG V3 API Server</h1>
+            <p>The backend microservice is active on port 3003 with live Web3 feeds, pricing streams, and database connectivity.</p>
+            <div class="links">
+              <a href="/health">Health API</a>
+              <a href="${config.frontendUrl}" class="secondary" target="_blank">Open App UI &rarr;</a>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+  } else {
+    res.status(200).json({ status: 'ok', service: 'alphabag-backend', version: '3.0.0', timestamp: new Date().toISOString() });
+  }
 });
 
 // ── Routes ─────────────────────────────────────────────────────────────────
