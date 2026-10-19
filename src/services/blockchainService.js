@@ -63,20 +63,32 @@ class BlockchainService {
                     value: parseUnits(amount.toString(), 18) // Assuming 18 decimals for native
                 });
             } else {
-                // Send ERC20 (Simplified: calls transfer(address,uint256))
-                // In a real scenario, you'd use a full ABI and contract call
-                const abi = [{
-                    name: 'transfer',
-                    type: 'function',
-                    stateMutability: 'nonpayable',
-                    inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }],
-                    outputs: [{ name: '', type: 'bool' }],
-                }];
-
-                // This is a placeholder for actual viem contract writing
-                // hash = await client.writeContract({ ... })
-                console.log(`Mocking ERC20 transfer of ${amount} to ${to} on ${chain}`);
-                hash = `0x_mock_hash_${Date.now()}`;
+                if (config.isProduction && !process.env.ALLOW_MOCK_TRANSFERS) {
+                    const publicClient = createPublicClient({
+                        chain: selectedChain,
+                        transport: http()
+                    });
+                    const decimals = await publicClient.readContract({
+                        address: tokenAddress,
+                        abi: [{ name: 'decimals', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint8' }] }],
+                        functionName: 'decimals'
+                    });
+                    hash = await client.writeContract({
+                        address: tokenAddress,
+                        abi: [{
+                            name: 'transfer',
+                            type: 'function',
+                            stateMutability: 'nonpayable',
+                            inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }],
+                            outputs: [{ name: '', type: 'bool' }],
+                        }],
+                        functionName: 'transfer',
+                        args: [to, parseUnits(amount.toString(), decimals)]
+                    });
+                } else {
+                    console.log(`[DEV/TEST] Simulating ERC20 transfer of ${amount} to ${to} on ${chain}`);
+                    hash = `0x_mock_hash_${Date.now()}`;
+                }
             }
 
             return { success: true, txHash: hash };

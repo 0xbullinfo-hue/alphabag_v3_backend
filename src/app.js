@@ -26,7 +26,7 @@ import { verifyToken, verifyAdmin } from './middleware/authMiddleware.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import providerHealthRoutes from './routes/providerHealthRoutes.js';
 import cookieParser from 'cookie-parser';
-import { csrfProtection } from './middleware/csrfMiddleware.js';
+import { csrfProtection, toOrigin } from './middleware/csrfMiddleware.js';
 
 const app = express();
 
@@ -51,11 +51,13 @@ app.use(helmet({
 }));
 
 // ── CORS ───────────────────────────────────────────────────────────────────
+const allowedFrontendOrigin = toOrigin(config.frontendUrl);
+
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (config.isProduction) {
-      if (origin === config.frontendUrl) return callback(null, true);
+      if (toOrigin(origin) === allowedFrontendOrigin) return callback(null, true);
       console.warn(`[CORS] Blocked origin: ${origin}`);
       return callback(new Error('Not allowed by CORS'));
     }
