@@ -4,6 +4,26 @@ import { config } from '../config/env.js';
 let redisClient = null;
 let isConnected = false;
 
+/**
+ * Thrown in production when REDIS_URL is configured but Redis is unreachable.
+ * Named StoreUnavailableError so error handlers map it to HTTP 503 (fail closed) instead of silently
+ * falling back to per-process memory, which would break nonce single-use and AI quota across instances.
+ */
+export class RedisUnavailableError extends Error {
+    constructor(message = 'Redis is unavailable') {
+        super(message);
+        this.name = 'StoreUnavailableError';
+        this.status = 503;
+    }
+}
+
+const redisRequired = () => Boolean(config.redisUrl) && config.isProduction;
+function assertRedisAvailable() {
+    if (redisRequired() && !(isConnected && redisClient)) {
+        throw new RedisUnavailableError('Redis is configured but not connected');
+    }
+}
+
 // In-memory fallbacks for development/testing when Redis is unconfigured
 const memoryNonces = new Map();
 const memoryAiQuota = new Map();
@@ -56,6 +76,7 @@ export function getRedisClient() {
  * Uses NX (Not eXists) so a duplicate nonce cannot overwrite an existing one.
  */
 export async function storeNonce(nonce, wallet, ttlSeconds = 300) {
+    assertRedisAvailable();
     const data = JSON.stringify({
         wallet: wallet.toLowerCase(),
         createdAt: Date.now()
@@ -67,6 +88,7 @@ export async function storeNonce(nonce, wallet, ttlSeconds = 300) {
             return res === 'OK';
         } catch (err) {
             console.warn('[REDIS] storeNonce failed, falling back to memory:', err.message);
+            if (redisRequired()) throw new RedisUnavailableError(err.message);
         }
     }
 
@@ -101,6 +123,7 @@ export async function storeNonce(nonce, wallet, ttlSeconds = 300) {
  * Atomically retrieve and consume a nonce (anti-replay single-use).
  */
 export async function consumeNonce(nonce) {
+    assertRedisAvailable();
     if (isConnected && redisClient) {
         try {
             // Redis 6.2+ GETDEL command returns value and deletes it in one atomic operation
@@ -123,6 +146,7 @@ export async function consumeNonce(nonce) {
             return JSON.parse(raw);
         } catch (err) {
             console.warn('[REDIS] consumeNonce failed, falling back to memory:', err.message);
+            if (redisRequired()) throw new RedisUnavailableError(err.message);
         }
     }
 
@@ -148,6 +172,7 @@ export async function consumeNonce(nonce) {
  * Atomic AI quota increment and check.
  */
 export async function incrementAiQuota(userId, dateStr, limit, ttlSeconds = 86400) {
+    assertRedisAvailable();
     const key = `ai_quota:${userId}:${dateStr}`;
 
     if (isConnected && redisClient) {
@@ -163,6 +188,7 @@ export async function incrementAiQuota(userId, dateStr, limit, ttlSeconds = 8640
             };
         } catch (err) {
             console.warn('[REDIS] incrementAiQuota failed, falling back to memory:', err.message);
+            if (redisRequired()) throw new RedisUnavailableError(err.message);
         }
     }
 
@@ -182,6 +208,7 @@ export async function incrementAiQuota(userId, dateStr, limit, ttlSeconds = 8640
  * Get current AI quota usage without incrementing.
  */
 export async function getAiQuota(userId, dateStr) {
+    assertRedisAvailable();
     const key = `ai_quota:${userId}:${dateStr}`;
 
     if (isConnected && redisClient) {
@@ -190,6 +217,7 @@ export async function getAiQuota(userId, dateStr) {
             return val ? parseInt(val, 10) : 0;
         } catch (err) {
             console.warn('[REDIS] getAiQuota failed, falling back to memory:', err.message);
+            if (redisRequired()) throw new RedisUnavailableError(err.message);
         }
     }
 

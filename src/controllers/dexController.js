@@ -6,6 +6,22 @@ const DEXSCREENER_ROOT = 'https://api.dexscreener.com';
 const CACHE_TTL = 30; // 30 seconds for live DEX data
 const LONG_CACHE_TTL = 120; // 2 minutes for metas/profiles
 
+// Strict input validation: values are interpolated into upstream URLs and cache keys, so they must
+// never contain path separators, dots or unbounded text.
+const CHAIN_ID_RE = /^[a-z0-9-]{2,30}$/;
+const ADDRESS_RE = /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}|[A-Za-z0-9]{20,66})$/;
+const MAX_BATCH_ADDRESSES = 30;
+const SEARCH_RE = /^[\p{L}\p{N} .$_\-/]{1,64}$/u;
+
+const isChainId = (v) => typeof v === 'string' && CHAIN_ID_RE.test(v.trim().toLowerCase());
+const isAddress = (v) => typeof v === 'string' && ADDRESS_RE.test(v.trim());
+const parseAddressList = (raw) => {
+  if (typeof raw !== 'string') return null;
+  const list = raw.split(',').map((a) => a.trim()).filter(Boolean);
+  if (list.length === 0 || list.length > MAX_BATCH_ADDRESSES || !list.every(isAddress)) return null;
+  return list;
+};
+
 export const dexController = {
   // GET /api/dex/search?q=USDT
   async searchPairs(req, res) {
@@ -13,6 +29,9 @@ export const dexController = {
       const { q } = req.query;
       if (!q || typeof q !== 'string' || q.trim().length === 0) {
         return res.status(400).json({ error: 'Query parameter "q" is required' });
+      }
+      if (!SEARCH_RE.test(q.trim())) {
+        return res.status(400).json({ error: 'Query contains unsupported characters or is too long' });
       }
 
       const cacheKey = `dex_search_${q.trim().toLowerCase()}`;
@@ -40,7 +59,7 @@ export const dexController = {
   async getTokenPairs(req, res) {
     try {
       const { tokenAddress } = req.params;
-      if (!tokenAddress) {
+      if (!isAddress(tokenAddress)) {
         return res.status(400).json({ error: 'Valid token address required' });
       }
 
@@ -72,8 +91,12 @@ export const dexController = {
         return res.status(400).json({ error: 'chainId and tokenAddresses parameters are required' });
       }
 
+      const addressList = parseAddressList(tokenAddresses);
+      if (!isChainId(chainId) || !addressList) {
+        return res.status(400).json({ error: `Invalid chainId or tokenAddresses (max ${MAX_BATCH_ADDRESSES} valid addresses)` });
+      }
       const cleanChain = chainId.toLowerCase().trim();
-      const cleanAddresses = tokenAddresses.toLowerCase().trim();
+      const cleanAddresses = addressList.map((a) => a.toLowerCase()).join(',');
       const cacheKey = `dex_multi_${cleanChain}_${cleanAddresses}`;
 
       const result = await getOrSetCache(cacheKey, CACHE_TTL, async () => {
@@ -101,6 +124,9 @@ export const dexController = {
       const { chainId, pairAddress } = req.params;
       if (!chainId || !pairAddress) {
         return res.status(400).json({ error: 'chainId and pairAddress parameters are required' });
+      }
+      if (!isChainId(chainId) || !isAddress(pairAddress)) {
+        return res.status(400).json({ error: 'Valid chainId and pairAddress are required' });
       }
 
       const cacheKey = `dex_pair_${chainId.toLowerCase()}_${pairAddress.toLowerCase()}`;

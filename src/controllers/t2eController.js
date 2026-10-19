@@ -13,7 +13,7 @@ const t2eEmitter = new EventEmitter();
 import { config } from '../config/env.js';
 import { normalizeAddress } from '../utils/address.js';
 import { verifyTransfer, verifyBatchTransfers, getBscPublicClient, TRANSFER_EVENT } from '../services/payoutVerifier.js';
-import { parseEventLogs } from 'viem';
+import { parseEventLogs, parseUnits } from 'viem';
 import { SiweMessage } from 'siwe';
 
 // Cooldown map to prevent automated economic spamming (F-08)
@@ -31,7 +31,35 @@ function checkEconomicRateLimit(userId, action = 'claim', cooldownMs = 3000) {
 
 import { verifyRequestCaptcha } from '../services/captchaService.js';
 
-export async function verifyEconomicCaptcha(req) {
+export /**
+ * Payout amount helpers. Token decimals come from BAG_TOKEN_DECIMALS (default 18) instead of being
+ * hard-coded, and a missing itemsToBagRate fails closed in production instead of silently using 1.0.
+ */
+function resolvePayoutRate(configRecord) {
+    const rate = Number(configRecord?.itemsToBagRate);
+    if (Number.isFinite(rate) && rate > 0) return { rate };
+    if (config.isProduction) {
+        return { error: 'itemsToBagRate is not configured; payouts cannot be verified.', status: 503 };
+    }
+    return { rate: 1.0 }; // development/test only
+}
+
+function payoutExpectedWei(items, rate) {
+    const tokens = Math.floor(Number(items) * rate * 1e8) / 1e8;
+    if (!Number.isFinite(tokens) || tokens <= 0) return 0n;
+    return parseUnits(tokens.toFixed(8), config.bagTokenDecimals);
+}
+
+/** The replay-protection table must exist in production; never silently skip the check. */
+function assertReplayModel(tx) {
+    if (!tx.payoutTxClaim && config.isProduction) {
+        const err = new Error('Payout replay protection is unavailable (apply prisma/manual_migrations/006_payout_tx_claims.sql).');
+        err.status = 503;
+        throw err;
+    }
+}
+
+async function verifyEconomicCaptcha(req) {
     return verifyRequestCaptcha(req);
 }
 
@@ -686,6 +714,14 @@ export const requestBagPayout = async (req, res) => {
     }
 };
 
+const usedWalletChangeSignatures = new Map();
+function pruneWalletChangeSignatures() {
+    const cutoff = Date.now() - 15 * 60 * 1000;
+    for (const [key, at] of usedWalletChangeSignatures) {
+        if (at < cutoff) usedWalletChangeSignatures.delete(key);
+    }
+}
+
 export const updatePreferredWallet = async (req, res) => {
     try {
         const { wallet, signature, message } = req.body;
@@ -711,23 +747,34 @@ export const updatePreferredWallet = async (req, res) => {
         const currentWallet = user.preferredWallet || user.verifiedWallet;
         if (currentWallet && currentWallet.toLowerCase() !== normalized.toLowerCase()) {
             if (signature && message) {
-                // Verify SIWE message signed by the NEW wallet address
+                // The change must be authorised by the account's own login wallet (not by the new
+                // address, which a session hijacker controls) and must name the new address.
                 try {
+                    const accountWallet = normalizeAddress(user.verifiedWallet || currentWallet);
                     const siweMessage = new SiweMessage(message);
                     const fields = await siweMessage.validate(signature);
-                    if (normalizeAddress(fields.address)?.toLowerCase() !== normalized.toLowerCase()) {
-                        return res.status(400).json({ error: 'Signature does not match the new wallet address' });
+                    if (!accountWallet || normalizeAddress(fields.address)?.toLowerCase() !== accountWallet.toLowerCase()) {
+                        return res.status(403).json({ error: 'The wallet-change message must be signed by your account wallet.' });
+                    }
+                    if (!String(fields.statement || '').toLowerCase().includes(normalized.toLowerCase())) {
+                        return res.status(400).json({ error: 'The signed statement must contain the new payout wallet address.' });
                     }
                     const issuedAt = Date.parse(fields.issuedAt);
                     if (!Number.isFinite(issuedAt) || Math.abs(Date.now() - issuedAt) > 10 * 60 * 1000) {
                         return res.status(400).json({ error: 'SIWE challenge timestamp is expired' });
                     }
+                    const replayKey = String(signature).toLowerCase();
+                    pruneWalletChangeSignatures();
+                    if (usedWalletChangeSignatures.has(replayKey)) {
+                        return res.status(409).json({ error: 'This signature was already used.' });
+                    }
+                    usedWalletChangeSignatures.set(replayKey, Date.now());
                 } catch (siweErr) {
                     return res.status(400).json({ error: `SIWE verification failed: ${siweErr.message}` });
                 }
             } else {
                 return res.status(403).json({
-                    error: 'Updating preferred wallet requires a fresh SIWE signature from the new wallet address to prove ownership, or a 24h security cooldown.',
+                    error: 'Changing the payout wallet requires a fresh SIWE signature from your account wallet whose statement names the new address.',
                     requiresSignature: true
                 });
             }
@@ -888,11 +935,9 @@ export const approveTokenRequest = async (req, res) => {
         }
 
         const configRecord = await store.findOne('t2e_config', { id: 'global_config' });
-        const rate = (configRecord && typeof configRecord.itemsToBagRate === 'number' && configRecord.itemsToBagRate > 0)
-            ? configRecord.itemsToBagRate
-            : 1.0;
-        const expectedBagTokens = Number(request.expectedTokens) * rate;
-        const expectedWei = BigInt(Math.floor(expectedBagTokens * 1e6)) * (10n ** 12n);
+        const resolved = resolvePayoutRate(configRecord);
+        if (resolved.error) return res.status(resolved.status).json({ error: resolved.error });
+        const expectedWei = payoutExpectedWei(request.expectedTokens, resolved.rate);
 
         // If BAG token address and treasury address are configured, perform on-chain transfer verification
         if (config.bagTokenAddress && config.treasuryAddress) {
@@ -917,6 +962,7 @@ export const approveTokenRequest = async (req, res) => {
                 throw err;
             }
 
+            assertReplayModel(tx);
             if (tx.payoutTxClaim) {
                 const existingClaim = await tx.payoutTxClaim.findUnique({
                     where: {
@@ -957,8 +1003,8 @@ export const approveTokenRequest = async (req, res) => {
 
         res.json({ success: true, txHash, status: 'APPROVED', request: approved });
     } catch (error) {
-        if (error.status === 400) {
-            return res.status(400).json({ error: error.message });
+        if (error.status === 400 || error.status === 503) {
+            return res.status(error.status).json({ error: error.message });
         }
         if (error.status === 409 || error.code === 'P2002') {
             return res.status(409).json({ error: 'Transaction hash has already been used for this recipient' });
@@ -1089,9 +1135,9 @@ export const approveAllTokenRequests = async (req, res) => {
         }
 
         const configRecord = await store.findOne('t2e_config', { id: 'global_config' });
-        const rate = (configRecord && typeof configRecord.itemsToBagRate === 'number' && configRecord.itemsToBagRate > 0)
-            ? configRecord.itemsToBagRate
-            : 1.0;
+        const resolved = resolvePayoutRate(configRecord);
+        if (resolved.error) return res.status(resolved.status).json({ error: resolved.error });
+        const rate = resolved.rate;
 
         let batchTransfers = null;
         if (config.bagTokenAddress && config.treasuryAddress) {
@@ -1118,8 +1164,7 @@ export const approveAllTokenRequests = async (req, res) => {
 
             for (const request of pendingRequests) {
                 const normalizedRecipient = normalizeAddress(request.walletAddress);
-                const expectedBagTokens = Number(request.expectedTokens) * rate;
-                const expectedWei = BigInt(Math.floor(expectedBagTokens * 1e6)) * (10n ** 12n);
+                const expectedWei = payoutExpectedWei(request.expectedTokens, rate);
 
                 // If batch transfers verification is active, ensure recipient received at least expectedWei
                 if (batchTransfers) {
@@ -1137,7 +1182,8 @@ export const approveAllTokenRequests = async (req, res) => {
                 }
 
                 // Check replay
-                if (tx.payoutTxClaim) {
+                assertReplayModel(tx);
+            if (tx.payoutTxClaim) {
                     const existingClaim = await tx.payoutTxClaim.findUnique({
                         where: {
                             txHash_walletAddress: {
@@ -1197,6 +1243,9 @@ export const approveAllTokenRequests = async (req, res) => {
             unmatched: result.unmatched
         });
     } catch (error) {
+        if (error.status === 503) {
+            return res.status(503).json({ error: error.message });
+        }
         console.error('[T2E] Approve All Error:', error);
         res.status(500).json({ error: 'Failed to approve all requests' });
     }

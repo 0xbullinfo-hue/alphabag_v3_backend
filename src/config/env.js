@@ -42,6 +42,12 @@ export function collectEnvErrors(env = process.env) {
   if (!env.BAG_TOKEN_ADDRESS || !/^0x[a-fA-F0-9]{40}$/.test(env.BAG_TOKEN_ADDRESS) || env.BAG_TOKEN_ADDRESS.toLowerCase() === ZERO_ADDRESS) {
     errors.push('BAG_TOKEN_ADDRESS must be a valid non-zero EVM contract address');
   }
+  if (env.BAG_TOKEN_DECIMALS !== undefined) {
+    const decimals = Number(env.BAG_TOKEN_DECIMALS);
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) {
+      errors.push('BAG_TOKEN_DECIMALS must be an integer between 0 and 36');
+    }
+  }
   const treasury = env.TREASURY_WALLET || env.TREASURY_ADDRESS;
   if (!treasury || !/^0x[a-fA-F0-9]{40}$/.test(treasury) || treasury.toLowerCase() === ZERO_ADDRESS) {
     errors.push('TREASURY_WALLET (or TREASURY_ADDRESS) must be a valid non-zero EVM address');
@@ -110,6 +116,7 @@ export const config = {
   outboundServerIp: process.env.OUTBOUND_SERVER_IP || null,
   redisUrl: process.env.REDIS_URL || '',
   bubblemapsApiKey: process.env.BUBBLEMAPS_API_KEY || '',
+  bagTokenDecimals: Number.parseInt(process.env.BAG_TOKEN_DECIMALS || '18', 10),
 };
 
 export default config;

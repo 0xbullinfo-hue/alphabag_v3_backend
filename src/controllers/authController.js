@@ -59,6 +59,9 @@ export const getNonce = async (req, res) => {
         await storeNonce(nonce, wallet, Math.floor(NONCE_EXPIRY_MS / 1000));
         res.status(200).json({ nonce });
     } catch (error) {
+        if (error?.name === 'StoreUnavailableError') {
+            return res.status(503).json({ error: 'Service temporarily unavailable' });
+        }
         console.error('Nonce generation error:', error);
         res.status(500).json({ error: 'Failed to generate nonce' });
     }
@@ -190,6 +193,9 @@ export const verify = async (req, res) => {
         setAuthCookie(res, token);
         res.status(200).json({ token, user: tokenPayload });
     } catch (error) {
+        if (error?.name === 'StoreUnavailableError') {
+            return res.status(503).json({ error: 'Service temporarily unavailable' });
+        }
         console.error('Verification error:', error);
         res.status(401).json({ error: 'Invalid signature or message' });
     }

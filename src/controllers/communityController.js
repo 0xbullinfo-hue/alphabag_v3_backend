@@ -1,218 +1,72 @@
 // SPDX-License-Identifier: MIT
-import { store } from '../services/storeService.js';
+// Community discussions and live audio space.
+//
+// Security model:
+//  - Every route is authenticated and tier-gated in communityRoutes.js; identity (wallet, tier, pro flag)
+//    is ALWAYS derived from the database user, never from the request body.
+//  - Votes are one-per-user and reversible; writes are length-bounded and rate-limited.
+//  - No fabricated content: stores start empty, counters are computed from real activity.
+// State is process-local (single instance). Move to Prisma models before scaling horizontally.
+import crypto from 'crypto';
 
-// Default initial discussions seed (Reddit / Web3 style)
-const DEFAULT_DISCUSSIONS = [
-    {
-        id: 'disc-bag-genesis',
-        title: '$BAG Tokenomics Architecture & Genesis Pass Staking Yield',
-        ticker: '$BAG',
-        category: 'TOKENOMICS',
-        sentiment: 'BULLISH',
-        content: `Comprehensive breakdown of the AlphaBAG Protocol fee-switch model and liquidity lock.\n\n• Protocol Revenue Distribution: 60% of all premium analytics subscription fees are automatically routed into the $BAG open-market buyback & burn smart contract.\n• Genesis Pass Staking: Yield multipliers scale based on pass tier (Free: 1x, Premium: 2.5x, Ultimate: 5x). Current APR averaging 28.4% on native single-sided staking pool.\n• Vesting Schedule: Team tokens locked in a 36-month linear vesting smart contract with zero unlocks until Month 12.\n\nThe real-yield engine ensures deflationary pressure as trader onboarding accelerates.`,
-        authorWallet: '0x71C...89A2',
-        authorTier: 'ULTIMATE',
-        isPro: true,
-        upvotes: 84,
-        downvotes: 3,
-        userVoted: undefined,
-        isInsightful: true,
-        insightfulCount: 38,
-        tokenMetrics: {
-            marketCap: '$14.2M',
-            fdv: '$32.0M',
-            circulatingSupply: '44.3%',
-            unlockDate: 'Month 12 Cliff (Safe)'
-        },
-        comments: [
-            {
-                id: 'comm-bag-1',
-                authorWallet: '0x34A...B901',
-                authorTier: 'PREMIUM',
-                isPro: true,
-                content: 'The buyback mechanism already burned over 2.4M $BAG in Q3. Very few DeFi tools actually distribute real revenue like this.',
-                sentiment: 'BULLISH',
-                upvotes: 19,
-                createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
-                replies: [
-                    {
-                        id: 'comm-bag-1-1',
-                        authorWallet: '0x88F...4210',
-                        authorTier: 'FREE',
-                        isPro: false,
-                        content: 'Are the buyback txs verifiable on Etherscan in real-time?',
-                        sentiment: 'NEUTRAL',
-                        upvotes: 6,
-                        createdAt: new Date(Date.now() - 3600000 * 3).toISOString()
-                    },
-                    {
-                        id: 'comm-bag-1-2',
-                        authorWallet: '0x71C...89A2',
-                        authorTier: 'ULTIMATE',
-                        isPro: true,
-                        content: 'Yes! All buyback hashes are emitted via the FeeDistributor contract event logs and visible on the Protocol Dashboard.',
-                        sentiment: 'BULLISH',
-                        upvotes: 12,
-                        createdAt: new Date(Date.now() - 3600000 * 2).toISOString()
-                    }
-                ]
-            },
-            {
-                id: 'comm-bag-2',
-                authorWallet: '0x12E...77C3',
-                authorTier: 'PREMIUM',
-                isPro: true,
-                content: 'Single-sided staking with zero impermanent loss is the major selling point compared to standard LP pools.',
-                sentiment: 'BULLISH',
-                upvotes: 11,
-                createdAt: new Date(Date.now() - 3600000 * 1).toISOString(),
-                replies: []
-            }
-        ],
-        createdAt: new Date(Date.now() - 3600000 * 8).toISOString(),
-        isPinned: true
-    },
-    {
-        id: 'disc-sol-breakout',
-        title: '$SOL DEX Volume Flipping Mainnet & Raydium Fee Dominance',
-        ticker: '$SOL',
-        category: 'ALPHA_CALL',
-        sentiment: 'BULLISH',
-        content: `Solana DEX 24H volume surpassed $3.8B today, driven by continuous memecoin rotations and Jupiter routing efficiency.\n\n• Whale Wallet Clustering: Three smart money clusters tracked via BubbleMaps accumulated over 120,000 SOL between $178 and $184.\n• On-chain TPS consistently above 2,600 without gas spikes.\n• Downside Risk: Watch for validator concentration and potential RPC node throttling during high-volatility trading spikes.`,
-        authorWallet: '0x99B...E311',
-        authorTier: 'PREMIUM',
-        isPro: true,
-        upvotes: 67,
-        downvotes: 7,
-        userVoted: undefined,
-        isInsightful: true,
-        insightfulCount: 24,
-        tokenMetrics: {
-            marketCap: '$92.4B',
-            fdv: '$114.8B',
-            circulatingSupply: '80.5%',
-            unlockDate: 'Staking Inflows (+6.2%)'
-        },
-        comments: [
-            {
-                id: 'comm-sol-1',
-                authorWallet: '0x45C...9081',
-                authorTier: 'FREE',
-                isPro: false,
-                content: 'Raydium daily protocol fees crossed Uniswap on multiple days this week. Incredible liquidity flywheel.',
-                sentiment: 'BULLISH',
-                upvotes: 14,
-                createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-                replies: []
-            }
-        ],
-        createdAt: new Date(Date.now() - 3600000 * 12).toISOString()
-    },
-    {
-        id: 'disc-render-depin',
-        title: '$RENDER AI GPU Cluster Demand vs Cloud Hyperscalers',
-        ticker: '$RENDER',
-        category: 'PROJECT_REVIEW',
-        sentiment: 'BULLISH',
-        content: `Deep dive into Render Network’s transition from 3D VFX rendering to enterprise AI inference.\n\n• Key Takeaway: Decentralized compute cost for Llama-3 fine-tuning is currently ~58% lower on Render nodes compared to AWS p4d.24xlarge instances.\n• BME (Burn-and-Mint Equilibrium): 140,000 RNDR burned last month against compute client vouchers.\n• Thesis: Strong macro hedge for AI compute scarcity as frontier model providers expand training budgets.`,
-        authorWallet: '0x52D...A1F0',
-        authorTier: 'ULTIMATE',
-        isPro: true,
-        upvotes: 52,
-        downvotes: 2,
-        userVoted: undefined,
-        isInsightful: true,
-        insightfulCount: 31,
-        tokenMetrics: {
-            marketCap: '$2.8B',
-            fdv: '$3.4B',
-            circulatingSupply: '71.2%',
-            unlockDate: 'Linear BME Mint'
-        },
-        comments: [],
-        createdAt: new Date(Date.now() - 3600000 * 18).toISOString()
-    },
-    {
-        id: 'disc-sui-move',
-        title: '$SUI Move VM Parallel Execution Benchmarks & Ecosystem TVL Wave',
-        ticker: '$SUI',
-        category: 'UTILITY',
-        sentiment: 'NEUTRAL',
-        content: `Benchmarking Sui’s object-centric storage model against EVM state transitions.\n\n• Positives: Sub-second finality (390ms) on non-conflicting single-writer transactions.\n• Concerns: Heavy token unlocks scheduled throughout next quarter (~64M SUI/month). Even with high TVL growth in Navi and Scallop, supply dilution must be carefully monitored by spot holders.`,
-        authorWallet: '0x21F...882E',
-        authorTier: 'PREMIUM',
-        isPro: true,
-        upvotes: 41,
-        downvotes: 8,
-        userVoted: undefined,
-        isInsightful: true,
-        insightfulCount: 18,
-        tokenMetrics: {
-            marketCap: '$5.6B',
-            fdv: '$18.2B',
-            circulatingSupply: '28.1%',
-            unlockDate: 'Monthly Cliff (+2.1%)'
-        },
-        comments: [],
-        createdAt: new Date(Date.now() - 3600000 * 24).toISOString()
-    }
-];
+const MAX_DISCUSSIONS = 500;
+const MAX_COMMENTS_PER_POST = 300;
+const MAX_CHAT_MESSAGES = 200;
+const PRESENCE_WINDOW_MS = 60_000;
 
-// Live audio space / podcast state
+const CATEGORIES = ['TOKENOMICS', 'MACRO', 'DEFI', 'TECHNICAL', 'ONCHAIN', 'NEWS', 'GENERAL'];
+const SENTIMENTS = ['BULLISH', 'BEARISH', 'NEUTRAL'];
+const HOST_TIERS = ['ULTIMATE', 'ALPHA_VIP'];
+
+const maskWallet = (wallet, fallback = 'anon') => {
+    const w = String(wallet || '');
+    return /^0x[a-fA-F0-9]{40}$/.test(w) ? `${w.slice(0, 6)}...${w.slice(-4)}` : fallback;
+};
+
+const identityOf = (req) => {
+    const user = req.dbUser || {};
+    const tier = String(user.tier || 'FREE').toUpperCase();
+    return {
+        userId: user.id || req.user?.id,
+        authorWallet: maskWallet(user.verifiedWallet, String(user.id || 'anon').slice(0, 8)),
+        authorTier: tier,
+        isPro: tier !== 'FREE',
+    };
+};
+
+const cleanText = (value, max) => (typeof value === 'string' ? value.replace(/\u0000/g, '').trim().slice(0, max) : '');
+
+let discussionsStore = [];
+const voteLedger = new Map();      // postId -> Map(userId -> 'UP' | 'DOWN')
+const insightfulLedger = new Map(); // postId -> Set(userId)
+const presence = new Map();        // userId -> lastSeenMs
+let podcastVoters = new Set();
+
 let livePodcastState = {
-    isLive: true,
-    title: "Alpha Roundtable: Whale Inflows, Tokenomics Audits & Q4 Breakouts",
-    topic: "Live Smart Money Tracking & On-Chain Liquidity Migration",
-    hostName: "AlphaDesk Lead Analyst",
-    hostWallet: "0x71C...89A2",
-    listenersCount: 142,
+    isLive: false,
+    title: '',
+    topic: '',
+    hostName: '',
+    hostWallet: '',
+    hostUserId: null,
+    listenersCount: 0,
     isListening: false,
-    stageSpeakers: [
-        { wallet: "0x71C...89A2", name: "AlphaDesk Lead", isHost: true, isSpeaking: true, tier: "ULTIMATE" },
-        { wallet: "0x34A...B901", name: "MacroDeFi_Whale", isHost: false, isSpeaking: false, tier: "PREMIUM" },
-        { wallet: "0x99B...E311", name: "SolanaScreener", isHost: false, isSpeaking: true, tier: "ULTIMATE" }
-    ],
-    liveChat: [
-        { id: "c1", authorWallet: "0x44D...88F1", tier: "PREMIUM", isVip: true, message: "What are your thoughts on the $BAG buyback rate this week?", timestamp: "1m ago" },
-        { id: "c2", authorWallet: "0x12E...77C3", tier: "FREE", isVip: false, message: "Listening in from Singapore. Great alpha on the DEX volume shift.", timestamp: "3m ago" },
-        { id: "c3", authorWallet: "0x88F...4210", tier: "ULTIMATE", isVip: true, message: "Whale wallet 0x3a9 just swept 40 ETH into liquidity pool.", timestamp: "5m ago" }
-    ],
-    upvotes: 96,
-    userUpvoted: false
+    stageSpeakers: [],
+    liveChat: [],
+    upvotes: 0,
+    userUpvoted: false,
 };
 
-const SPONSORED_AD = {
-    id: 'ad-bag-genesis',
-    partnerName: 'AlphaBAG Genesis Pass',
-    tagline: 'Unlock institutional on-chain trade alerts, whale cluster detection & fee share yield.',
-    description: 'Lifetime pass holders receive 100% access to all VIP screener tools, private Discord stages, and daily smart money flow reports.',
-    badge: 'VERIFIED ECOSYSTEM',
-    ctaText: 'Explore Pass Utility',
-    ctaUrl: '#/airdrop',
-    logoUrl: '/favicon.svg'
-};
-
-const TRENDING_TOPICS = [
-    { ticker: '$BAG', topic: 'Genesis Staking & Deflationary Buyback Engine', posts: 148, sentiment: 'BULLISH' },
-    { ticker: '$SOL', topic: 'DEX Volume Surpasses Ethereum Mainnet', posts: 124, sentiment: 'BULLISH' },
-    { ticker: '$RENDER', topic: 'Decentralized AI Compute Cluster Expansion', posts: 89, sentiment: 'BULLISH' },
-    { ticker: '$SUI', topic: 'Ecosystem TVL Benchmark & Lockup Analysis', posts: 72, sentiment: 'NEUTRAL' },
-    { ticker: '$PEPE', topic: 'Whale Accumulation Signals on BubbleMaps', posts: 64, sentiment: 'BULLISH' }
-];
-
-const TOP_ANALYSTS = [
-    { rank: '1', wallet: '0x71C...89A2', tier: 'ULTIMATE', score: '98.4%', focus: 'Tokenomics & Vesting' },
-    { rank: '2', wallet: '0x99B...E311', tier: 'ULTIMATE', score: '94.1%', focus: 'DEX Liquidity & Momentum' },
-    { rank: '3', wallet: '0x52D...A1F0', tier: 'PREMIUM', score: '91.8%', focus: 'DePIN & AI Compute' },
-    { rank: '4', wallet: '0x34A...B901', tier: 'PREMIUM', score: '88.5%', focus: 'On-Chain Smart Money' }
-];
-
-// In-memory discussions store initialized with defaults
-let discussionsStore = [...DEFAULT_DISCUSSIONS];
+const viewForUser = (post, userId) => ({
+    ...post,
+    userVoted: voteLedger.get(post.id)?.get(userId) || null,
+    isInsightful: Boolean(insightfulLedger.get(post.id)?.has(userId)),
+    insightfulCount: insightfulLedger.get(post.id)?.size || 0,
+});
 
 export const getDiscussions = async (req, res) => {
     try {
-        return res.json(discussionsStore);
+        return res.json(discussionsStore.map((post) => viewForUser(post, req.user.id)));
     } catch (err) {
         console.error('[CommunityController] getDiscussions error:', err);
         return res.status(500).json({ error: 'Failed to retrieve discussions' });
@@ -221,33 +75,39 @@ export const getDiscussions = async (req, res) => {
 
 export const createDiscussion = async (req, res) => {
     try {
-        const { title, ticker, category, sentiment, content, authorWallet, authorTier, isPro, tokenMetrics } = req.body;
+        const title = cleanText(req.body?.title, 140);
+        const content = cleanText(req.body?.content, 5000);
         if (!title || !content) {
             return res.status(400).json({ error: 'Title and content are required' });
         }
 
+        const rawTicker = cleanText(req.body?.ticker, 13).replace(/^\$/, '').toUpperCase();
+        if (rawTicker && !/^[A-Z0-9]{1,12}$/.test(rawTicker)) {
+            return res.status(400).json({ error: 'Ticker must be 1-12 letters or digits' });
+        }
+        const category = CATEGORIES.includes(req.body?.category) ? req.body.category : 'GENERAL';
+        const sentiment = SENTIMENTS.includes(req.body?.sentiment) ? req.body.sentiment : 'NEUTRAL';
+        const who = identityOf(req);
+
         const newPost = {
-            id: `disc-${Date.now()}`,
-            title: title.trim(),
-            ticker: ticker ? (ticker.startsWith('$') ? ticker.toUpperCase() : `$${ticker.toUpperCase()}`) : '$ALPHA',
-            category: category || 'TOKENOMICS',
-            sentiment: sentiment || 'BULLISH',
-            content: content.trim(),
-            authorWallet: authorWallet || '0x000...0000',
-            authorTier: authorTier || 'FREE',
-            isPro: Boolean(isPro),
-            upvotes: 1,
+            id: `disc-${crypto.randomUUID()}`,
+            title,
+            ticker: rawTicker ? `$${rawTicker}` : null,
+            category,
+            sentiment,
+            content,
+            authorWallet: who.authorWallet,
+            authorTier: who.authorTier,
+            authorId: who.userId,
+            isPro: who.isPro,
+            upvotes: 0,
             downvotes: 0,
-            userVoted: 'UP',
-            isInsightful: false,
-            insightfulCount: 0,
-            tokenMetrics: tokenMetrics || undefined,
             comments: [],
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
         };
 
-        discussionsStore = [newPost, ...discussionsStore];
-        return res.status(201).json(newPost);
+        discussionsStore = [newPost, ...discussionsStore].slice(0, MAX_DISCUSSIONS);
+        return res.status(201).json(viewForUser(newPost, who.userId));
     } catch (err) {
         console.error('[CommunityController] createDiscussion error:', err);
         return res.status(500).json({ error: 'Failed to create discussion' });
@@ -257,20 +117,33 @@ export const createDiscussion = async (req, res) => {
 export const voteDiscussion = async (req, res) => {
     try {
         const { id } = req.params;
-        const { type } = req.body; // 'UP' | 'DOWN'
-
-        const post = discussionsStore.find(d => d.id === id);
-        if (!post) {
-            return res.status(404).json({ error: 'Discussion not found' });
+        const type = req.body?.type;
+        if (type !== 'UP' && type !== 'DOWN') {
+            return res.status(400).json({ error: "type must be 'UP' or 'DOWN'" });
         }
+        const post = discussionsStore.find((d) => d.id === id);
+        if (!post) return res.status(404).json({ error: 'Discussion not found' });
 
-        if (type === 'UP') {
-            post.upvotes += 1;
-        } else if (type === 'DOWN') {
-            post.downvotes += 1;
+        const ledger = voteLedger.get(id) || new Map();
+        const previous = ledger.get(req.user.id);
+        // Undo the previous vote, then apply the new one (same vote again = remove it).
+        if (previous === 'UP') post.upvotes -= 1;
+        if (previous === 'DOWN') post.downvotes -= 1;
+        if (previous === type) {
+            ledger.delete(req.user.id);
+        } else {
+            ledger.set(req.user.id, type);
+            if (type === 'UP') post.upvotes += 1;
+            else post.downvotes += 1;
         }
+        voteLedger.set(id, ledger);
 
-        return res.json({ success: true, upvotes: post.upvotes, downvotes: post.downvotes });
+        return res.json({
+            success: true,
+            upvotes: post.upvotes,
+            downvotes: post.downvotes,
+            userVoted: ledger.get(req.user.id) || null,
+        });
     } catch (err) {
         console.error('[CommunityController] voteDiscussion error:', err);
         return res.status(500).json({ error: 'Failed to vote' });
@@ -280,15 +153,15 @@ export const voteDiscussion = async (req, res) => {
 export const toggleInsightful = async (req, res) => {
     try {
         const { id } = req.params;
-        const post = discussionsStore.find(d => d.id === id);
-        if (!post) {
-            return res.status(404).json({ error: 'Discussion not found' });
-        }
+        const post = discussionsStore.find((d) => d.id === id);
+        if (!post) return res.status(404).json({ error: 'Discussion not found' });
 
-        post.isInsightful = !post.isInsightful;
-        post.insightfulCount += post.isInsightful ? 1 : -1;
+        const set = insightfulLedger.get(id) || new Set();
+        if (set.has(req.user.id)) set.delete(req.user.id);
+        else set.add(req.user.id);
+        insightfulLedger.set(id, set);
 
-        return res.json({ success: true, isInsightful: post.isInsightful, insightfulCount: post.insightfulCount });
+        return res.json({ success: true, isInsightful: set.has(req.user.id), insightfulCount: set.size });
     } catch (err) {
         console.error('[CommunityController] toggleInsightful error:', err);
         return res.status(500).json({ error: 'Failed to toggle insightful' });
@@ -298,39 +171,33 @@ export const toggleInsightful = async (req, res) => {
 export const addComment = async (req, res) => {
     try {
         const { id } = req.params;
-        const { content, sentiment, replyToId, authorWallet, authorTier, isPro } = req.body;
+        const content = cleanText(req.body?.content, 1000);
+        if (!content) return res.status(400).json({ error: 'Comment content is required' });
 
-        if (!content || !content.trim()) {
-            return res.status(400).json({ error: 'Comment content is required' });
+        const post = discussionsStore.find((d) => d.id === id);
+        if (!post) return res.status(404).json({ error: 'Discussion not found' });
+        if (post.comments.length >= MAX_COMMENTS_PER_POST) {
+            return res.status(429).json({ error: 'This discussion has reached its comment limit' });
         }
 
-        const post = discussionsStore.find(d => d.id === id);
-        if (!post) {
-            return res.status(404).json({ error: 'Discussion not found' });
-        }
-
+        const who = identityOf(req);
         const newComment = {
-            id: `comm-${Date.now()}`,
-            authorWallet: authorWallet || '0x000...0000',
-            authorTier: authorTier || 'FREE',
-            isPro: Boolean(isPro),
-            content: content.trim(),
-            sentiment: sentiment || 'NEUTRAL',
-            upvotes: 1,
+            id: `comm-${crypto.randomUUID()}`,
+            authorWallet: who.authorWallet,
+            authorTier: who.authorTier,
+            authorId: who.userId,
+            isPro: who.isPro,
+            content,
+            sentiment: SENTIMENTS.includes(req.body?.sentiment) ? req.body.sentiment : 'NEUTRAL',
+            upvotes: 0,
             createdAt: new Date().toISOString(),
-            replies: []
+            replies: [],
         };
 
-        if (replyToId) {
-            const parent = post.comments.find(c => c.id === replyToId);
-            if (parent) {
-                parent.replies = [...(parent.replies || []), newComment];
-            } else {
-                post.comments = [newComment, ...post.comments];
-            }
-        } else {
-            post.comments = [newComment, ...post.comments];
-        }
+        const replyToId = typeof req.body?.replyToId === 'string' ? req.body.replyToId : null;
+        const parent = replyToId ? post.comments.find((c) => c.id === replyToId) : null;
+        if (parent) parent.replies = [...(parent.replies || []), newComment];
+        else post.comments = [newComment, ...post.comments];
 
         return res.status(201).json(newComment);
     } catch (err) {
@@ -341,7 +208,17 @@ export const addComment = async (req, res) => {
 
 export const getPodcast = async (req, res) => {
     try {
-        return res.json(livePodcastState);
+        const now = Date.now();
+        presence.set(req.user.id, now);
+        for (const [userId, seen] of presence) {
+            if (now - seen > PRESENCE_WINDOW_MS) presence.delete(userId);
+        }
+        return res.json({
+            ...livePodcastState,
+            listenersCount: livePodcastState.isLive ? presence.size : 0,
+            isListening: livePodcastState.isLive,
+            userUpvoted: podcastVoters.has(req.user.id),
+        });
     } catch (err) {
         console.error('[CommunityController] getPodcast error:', err);
         return res.status(500).json({ error: 'Failed to retrieve podcast' });
@@ -350,21 +227,22 @@ export const getPodcast = async (req, res) => {
 
 export const sendPodcastChat = async (req, res) => {
     try {
-        const { message, authorWallet, tier, isVip } = req.body;
-        if (!message || !message.trim()) {
-            return res.status(400).json({ error: 'Message is required' });
+        if (!livePodcastState.isLive) {
+            return res.status(409).json({ error: 'There is no live space right now' });
         }
+        const message = cleanText(req.body?.message, 280);
+        if (!message) return res.status(400).json({ error: 'Message is required' });
 
+        const who = identityOf(req);
         const chatEntry = {
-            id: `msg-${Date.now()}`,
-            authorWallet: authorWallet || '0x000...0000',
-            tier: tier || 'FREE',
-            isVip: Boolean(isVip),
-            message: message.trim().slice(0, 280),
-            timestamp: 'Just now'
+            id: `msg-${crypto.randomUUID()}`,
+            authorWallet: who.authorWallet,
+            tier: who.authorTier,
+            isVip: who.authorTier === 'ULTIMATE' || who.authorTier === 'ALPHA_VIP',
+            message,
+            timestamp: new Date().toISOString(),
         };
-
-        livePodcastState.liveChat = [chatEntry, ...livePodcastState.liveChat].slice(0, 200);
+        livePodcastState.liveChat = [chatEntry, ...livePodcastState.liveChat].slice(0, MAX_CHAT_MESSAGES);
         return res.status(201).json(chatEntry);
     } catch (err) {
         console.error('[CommunityController] sendPodcastChat error:', err);
@@ -374,42 +252,35 @@ export const sendPodcastChat = async (req, res) => {
 
 export const startPodcastSpace = async (req, res) => {
     try {
-        const { title, topic, hostName, hostWallet, tier } = req.body;
-        if (!title || !topic) {
-            return res.status(400).json({ error: 'Title and topic are required' });
+        const who = identityOf(req);
+        if (!req.user?.isAdmin && !HOST_TIERS.includes(who.authorTier)) {
+            return res.status(403).json({ error: 'Only ULTIMATE or ALPHA_VIP members can host a space' });
         }
+        if (livePodcastState.isLive && livePodcastState.hostUserId !== who.userId && !req.user?.isAdmin) {
+            return res.status(409).json({ error: 'A space is already live' });
+        }
+        const title = cleanText(req.body?.title, 120);
+        const topic = cleanText(req.body?.topic, 240);
+        if (!title || !topic) return res.status(400).json({ error: 'Title and topic are required' });
 
+        const hostName = cleanText(req.body?.hostName, 40) || 'Community Host';
+        podcastVoters = new Set();
+        presence.clear();
+        presence.set(who.userId, Date.now());
         livePodcastState = {
             isLive: true,
-            title: title.trim(),
-            topic: topic.trim(),
-            hostName: hostName || 'Community Host',
-            hostWallet: hostWallet || '0x000...0000',
+            title,
+            topic,
+            hostName,
+            hostWallet: who.authorWallet,
+            hostUserId: who.userId,
             listenersCount: 1,
             isListening: true,
-            stageSpeakers: [
-                {
-                    wallet: hostWallet || '0x000...0000',
-                    name: hostName || 'Community Host',
-                    isHost: true,
-                    isSpeaking: true,
-                    tier: tier || 'PREMIUM'
-                }
-            ],
-            liveChat: [
-                {
-                    id: `msg-${Date.now()}`,
-                    authorWallet: hostWallet || '0x000...0000',
-                    tier: tier || 'PREMIUM',
-                    isVip: true,
-                    message: `Welcome to "${title.trim()}". Live audio space is now open for community questions!`,
-                    timestamp: 'Just now'
-                }
-            ],
-            upvotes: 1,
-            userUpvoted: true
+            stageSpeakers: [{ wallet: who.authorWallet, name: hostName, isHost: true, isSpeaking: true, tier: who.authorTier }],
+            liveChat: [],
+            upvotes: 0,
+            userUpvoted: false,
         };
-
         return res.status(201).json(livePodcastState);
     } catch (err) {
         console.error('[CommunityController] startPodcastSpace error:', err);
@@ -419,22 +290,76 @@ export const startPodcastSpace = async (req, res) => {
 
 export const votePodcast = async (req, res) => {
     try {
-        livePodcastState.upvotes += 1;
-        return res.json({ success: true, upvotes: livePodcastState.upvotes });
+        if (!livePodcastState.isLive) return res.status(409).json({ error: 'There is no live space right now' });
+        if (podcastVoters.has(req.user.id)) {
+            podcastVoters.delete(req.user.id);
+            livePodcastState.upvotes = Math.max(0, livePodcastState.upvotes - 1);
+        } else {
+            podcastVoters.add(req.user.id);
+            livePodcastState.upvotes += 1;
+        }
+        return res.json({ success: true, upvotes: livePodcastState.upvotes, userUpvoted: podcastVoters.has(req.user.id) });
     } catch (err) {
         console.error('[CommunityController] votePodcast error:', err);
         return res.status(500).json({ error: 'Failed to vote on podcast' });
     }
 };
 
-export const getSponsoredAd = async (req, res) => {
-    return res.json(SPONSORED_AD);
+// First-party promo card for the platform's own pass (not third-party advertising).
+const SPONSORED_AD = {
+    id: 'ad-bag-genesis',
+    partnerName: 'AlphaBAG Genesis Pass',
+    tagline: 'Unlock institutional on-chain trade alerts, whale cluster detection & fee share yield.',
+    description: 'Pass holders receive access to the premium screener tools and daily smart money flow reports.',
+    badge: 'FIRST-PARTY',
+    ctaText: 'Explore Pass Utility',
+    ctaUrl: '#/airdrop',
+    logoUrl: '/favicon.svg',
 };
 
+export const getSponsoredAd = async (req, res) => res.json(SPONSORED_AD);
+
+// Trending topics are computed from real discussions of the last 24 hours.
 export const getTrendingTopics = async (req, res) => {
-    return res.json(TRENDING_TOPICS);
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    const byTicker = new Map();
+    for (const post of discussionsStore) {
+        if (!post.ticker || Date.parse(post.createdAt) < since) continue;
+        const entry = byTicker.get(post.ticker) || { ticker: post.ticker, topic: post.title, posts: 0, tally: { BULLISH: 0, BEARISH: 0, NEUTRAL: 0 } };
+        entry.posts += 1;
+        entry.tally[post.sentiment] = (entry.tally[post.sentiment] || 0) + 1;
+        byTicker.set(post.ticker, entry);
+    }
+    const trending = [...byTicker.values()]
+        .sort((a, b) => b.posts - a.posts)
+        .slice(0, 5)
+        .map(({ ticker, topic, posts, tally }) => ({
+            ticker,
+            topic,
+            posts,
+            sentiment: Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0],
+        }));
+    return res.json(trending);
 };
 
+// Top analysts are ranked by net upvotes on their real posts.
 export const getTopAnalysts = async (req, res) => {
-    return res.json(TOP_ANALYSTS);
+    const byAuthor = new Map();
+    for (const post of discussionsStore) {
+        const entry = byAuthor.get(post.authorId) || { wallet: post.authorWallet, tier: post.authorTier, net: 0, categories: new Map() };
+        entry.net += post.upvotes - post.downvotes;
+        entry.categories.set(post.category, (entry.categories.get(post.category) || 0) + 1);
+        byAuthor.set(post.authorId, entry);
+    }
+    const ranked = [...byAuthor.values()]
+        .sort((a, b) => b.net - a.net)
+        .slice(0, 10)
+        .map((entry, index) => ({
+            rank: String(index + 1),
+            wallet: entry.wallet,
+            tier: entry.tier,
+            score: `${entry.net} net votes`,
+            focus: [...entry.categories.entries()].sort((a, b) => b[1] - a[1])[0][0],
+        }));
+    return res.json(ranked);
 };
