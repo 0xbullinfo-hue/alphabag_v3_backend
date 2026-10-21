@@ -26,7 +26,7 @@ export const getBalances = async (req, res) => {
 
   try {
     const result = await getOrSetCache(cacheKey, 30, async () => {
-      const portfolio = await CanonicalPortfolioService.computeSingleDexPortfolio(address);
+      const portfolio = await CanonicalPortfolioService.computeSingleDexPortfolio(address, chains);
       const requestedChains = typeof chains === 'string'
         ? new Set(chains.split(',').map((c) => c.trim().toLowerCase()).filter(Boolean))
         : null;

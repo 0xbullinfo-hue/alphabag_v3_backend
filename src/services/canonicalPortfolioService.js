@@ -6,6 +6,7 @@ import NodeCache from 'node-cache';
 import { blockchainService } from './blockchainService.js';
 import { getEvmTokenPrices, getNativePrices } from './priceService.js';
 import { fetchUserCexBalances } from '../controllers/cexController.js';
+import { getWalletBalances } from './coinStatsService.js';
 import { store } from './storeService.js';
 
 const portfolioCache = new NodeCache({ stdTTL: 20, checkperiod: 60, useClones: false });
@@ -172,7 +173,58 @@ export class CanonicalPortfolioService {
     return { tokens, totalUSD };
   }
 
-  static async computeSingleDexPortfolio(address) {
+  static async computeSingleDexPortfolio(address, chainHint = null) {
+    // 1. Real-time CoinStats live multi-token balance resolution
+    try {
+      const CHAIN_TO_COINSTATS = {
+        eth: 'ethereum',
+        ethereum: 'ethereum',
+        bsc: 'binance-smart-chain',
+        'binance-smart-chain': 'binance-smart-chain',
+        polygon: 'polygon',
+        matic: 'polygon',
+        arb: 'arbitrum',
+        arbitrum: 'arbitrum',
+        base: 'base',
+        sol: 'solana',
+        solana: 'solana',
+      };
+
+      const requested = typeof chainHint === 'string' ? chainHint.trim().toLowerCase() : '';
+      const targetChain = CHAIN_TO_COINSTATS[requested] || 'ethereum';
+
+      const coinstatsTokens = await getWalletBalances(address, targetChain);
+      if (Array.isArray(coinstatsTokens) && coinstatsTokens.length > 0) {
+        const positiveTokens = coinstatsTokens.filter((t) => t && Number(t.amount) > 0);
+        if (positiveTokens.length > 0) {
+          const mapped = positiveTokens.map((t) => {
+            const amountNum = Number(t.amount || 0);
+            const priceNum = Number(t.price || 0);
+            const isNative = !t.contractAddress || t.coinId === 'ethereum' || t.coinId === 'binancecoin' || t.coinId === 'matic-network' || t.coinId === 'solana';
+            const contractAddress = isNative ? NATIVE_TOKEN_ADDRESS : (t.contractAddress ? t.contractAddress.toLowerCase() : NATIVE_TOKEN_ADDRESS);
+            return {
+              contractAddress,
+              symbol: t.symbol || 'UNK',
+              name: t.name || t.symbol || 'Unknown Token',
+              chain: t.chain || targetChain,
+              balance: String(t.amount || '0'),
+              priceUSD: priceNum > 0 ? priceNum : null,
+              valueUSD: priceNum > 0 ? Number((amountNum * priceNum).toFixed(2)) : null,
+              valuationStatus: priceNum > 0 ? 'VALUED' : 'UNAVAILABLE',
+              change24h: t.pCh24h != null ? Number(t.pCh24h) : null,
+              logo: t.imgUrl || undefined,
+              isNative,
+            };
+          });
+
+          const valuedTokens = mapped.filter((t) => Number.isFinite(t.valueUSD));
+          const totalUSD = Number(valuedTokens.reduce((sum, t) => sum + t.valueUSD, 0).toFixed(2));
+          return { tokens: mapped, totalUSD, valuationStatus: 'VALUED' };
+        }
+      }
+    } catch (csErr) {
+      console.warn('[CanonicalPortfolio] CoinStats wallet balance fallback:', csErr.message);
+    }
     const [balances, nativePrices] = await Promise.all([
       blockchainService.getEvmBalances(address),
       getNativePrices(),
