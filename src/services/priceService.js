@@ -1,3 +1,4 @@
+import { getLiveCoins } from './coinstatsService.js';
 // SPDX-License-Identifier: MIT
 // AlphaBAG V3 — Price Resolution Service
 // Single source of truth for USD pricing:
@@ -77,6 +78,23 @@ export async function getSymbolPrices(symbols = []) {
     }
 
     const known = unique.filter((s) => !(s in result) && SYMBOL_TO_GECKO_ID[s]);
+
+    // High-speed resolution via CoinStats live data
+    try {
+        const liveCoins = await getLiveCoins({ page: 1, limit: 100 });
+        const bySymbol = {};
+        for (const c of liveCoins) {
+            bySymbol[c.symbol.toUpperCase()] = {
+                usd: c.current_price,
+                usd_24h_change: c.price_change_percentage_24h,
+            };
+        }
+        for (const s of known) {
+            if (bySymbol[s] && !(s in result)) {
+                result[s] = bySymbol[s];
+            }
+        }
+    } catch (_) {}
     for (const batch of chunk(known, 100)) {
         const ids = batch.map((s) => SYMBOL_TO_GECKO_ID[s]);
         try {

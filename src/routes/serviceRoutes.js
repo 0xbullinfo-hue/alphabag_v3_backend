@@ -1,5 +1,5 @@
 import express from 'express';
-import { getPrices, searchCoins, getCoinsMarkets } from '../controllers/marketController.js';
+import { getPrices, searchCoins, getCoinsMarkets, getGlobalOverview, getLiveNewsFeed, getCoinDetails, streamMarketTicker } from '../controllers/marketController.js';
 import { tokenPriceController } from '../controllers/tokenPriceController.js';
 import { dexController } from '../controllers/dexController.js';
 import { getAddressTransactions, getTopHolders, followWhale, unfollowWhale, getFollows, getTransactions, getWallets, getTokenTransfers } from '../controllers/whaleController.js';
@@ -15,6 +15,10 @@ marketRouter.get('/prices', getPrices);
 marketRouter.get('/coins/markets', getCoinsMarkets);
 marketRouter.get('/search', searchCoins);
 marketRouter.get('/token-price', tokenPriceController.getTokenPrices);
+marketRouter.get('/global', getGlobalOverview);
+marketRouter.get('/overview', getGlobalOverview);
+marketRouter.get('/news', getLiveNewsFeed);
+marketRouter.get('/coins/:coinId', getCoinDetails);
 
 const dexRouter = express.Router();
 dexRouter.get('/search', dexController.searchPairs);
@@ -49,6 +53,7 @@ portfolioRouter.post('/snapshot', saveSnapshot);
 
 const streamRouter = express.Router();
 streamRouter.get('/portfolio', streamPortfolio);
+streamRouter.get('/ticker', streamMarketTicker);
 
 const cexRouter = express.Router();
 cexRouter.post('/connections', verifyToken, createConnection);

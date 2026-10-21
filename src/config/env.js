@@ -95,6 +95,7 @@ export const config = {
   },
   covalentApiKey: process.env.COVALENT_API_KEY || '',
   coingeckoApiKey: process.env.COINGECKO_API_KEY || '',
+  coinstatsApiKey: process.env.COINSTATS_API_KEY || '',
   moralisApiKey: process.env.MORALIS_API_KEY || '',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   bagTokenAddress: process.env.BAG_TOKEN_ADDRESS || '',
