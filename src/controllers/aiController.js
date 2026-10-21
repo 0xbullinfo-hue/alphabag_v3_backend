@@ -1,3 +1,4 @@
+import { getLiveCoins, getGlobalMarketTelemetry } from '../services/coinstatsService.js';
 // SPDX-License-Identifier: MIT
 // AlphaBAG V3 — AI Controller (Fully Grounded with CanonicalPortfolioService)
 
@@ -120,6 +121,29 @@ async function generateWithRetry(prompt, systemInstruction = '', maxRetries = 1)
 
 const portfolioHash = (data) =>
   crypto.createHash('md5').update(JSON.stringify(data?.tokens || data?.balances || data || {})).digest('hex');
+
+const enrichFactsWithLiveMarket = async (facts) => {
+  try {
+    const [telemetry, topCoins] = await Promise.all([
+      getGlobalMarketTelemetry(),
+      getLiveCoins({ page: 1, limit: 15 }),
+    ]);
+    if (telemetry) {
+      if (telemetry.marketCap) facts.push({ key: 'GLOBAL_CRYPTO_MARKET_CAP_USD', value: telemetry.marketCap, source: 'CoinStats' });
+      if (telemetry.volume) facts.push({ key: 'GLOBAL_CRYPTO_24H_VOLUME_USD', value: telemetry.volume, source: 'CoinStats' });
+      if (telemetry.btcDominance) facts.push({ key: 'BTC_DOMINANCE_PERCENT', value: telemetry.btcDominance, source: 'CoinStats' });
+    }
+    for (const coin of (topCoins || [])) {
+      const sym = (coin.symbol || '').toUpperCase();
+      if (coin.current_price) {
+        facts.push({ key: 'LIVE_PRICE_' + sym + '_USD', value: coin.current_price, source: 'CoinStats' });
+      }
+      if (coin.price_change_percentage_24h != null) {
+        facts.push({ key: 'CHANGE_24H_' + sym + '_PERCENT', value: coin.price_change_percentage_24h, source: 'CoinStats' });
+      }
+    }
+  } catch (_) {}
+};
 
 export const aiController = {
   async generateAnalysis(req, res) {
