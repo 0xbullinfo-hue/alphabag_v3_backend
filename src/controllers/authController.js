@@ -187,14 +187,14 @@ export const login = async (req, res) => {
             const devUser = {
                 id: 'demo-user-001',
                 email: email || 'alpha@alphabag.io',
-                wallet: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
-                verifiedWallet: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
-                walletAddress: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+                wallet: null,
+                verifiedWallet: null,
+                walletAddress: null,
                 tier: 'ULTIMATE',
                 isAdmin: false,
-                bagTokens: 15000,
-                itemsBalance: 500,
-                totalEarned: 500,
+                bagTokens: 0,
+                itemsBalance: 0,
+                totalEarned: 0,
                 accountType: 'TRADER',
                 onboardingComplete: true,
                 createdAt: new Date().toISOString()
@@ -284,7 +284,7 @@ export const getMe = async (req, res) => {
             // comes from the `admins` table exclusively, per this file's
             // own stated design.
             if (!config.isProduction && process.env.ALLOW_DEV_AUTH_BYPASS === 'true' && req.user) {
-                const walletToCheck = (req.user.wallet || req.user.address || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045').toLowerCase();
+                const walletToCheck = req.user.wallet || req.user.address || null;
                 user = {
                     id: req.user.id || 'demo-user-001',
                     email: req.user.email || 'alpha@alphabag.io',
@@ -293,9 +293,9 @@ export const getMe = async (req, res) => {
                     walletAddress: walletToCheck,
                     tier: req.user.tier || 'ULTIMATE',
                     isAdmin: false,
-                    bagTokens: 15000,
-                    itemsBalance: 500,
-                    totalEarned: 500,
+                    bagTokens: req.user.bagTokens || 0,
+                    itemsBalance: 0,
+                    totalEarned: 0,
                     accountType: 'TRADER',
                     onboardingComplete: true,
                     createdAt: new Date().toISOString()
