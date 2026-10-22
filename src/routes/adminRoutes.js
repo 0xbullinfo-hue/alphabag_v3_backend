@@ -1,4 +1,3 @@
-
 import express from 'express';
 import { verifyToken, verifyAdmin } from '../middleware/authMiddleware.js';
 import {
@@ -9,11 +8,15 @@ import {
     getAdminSettings, updateAdminSettings, sendTestAlert,
     getSeoAeoWorkspace, updateSeoAeoWorkspace, getSeoAeoWorkspaceAudit
 } from '../controllers/adminController.js';
+import adminAuditLogRouter from './adminAuditLog.js';
 
 const router = express.Router();
 
 // All routes require Admin privileges
 router.use(verifyToken, verifyAdmin);
+
+// Audit Log
+router.use(adminAuditLogRouter);
 
 // Dashboard
 router.get('/system', getSystemStats);

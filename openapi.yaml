@@ -2161,7 +2161,7 @@ paths:
               schema:
                 type: string
 
-/community/communities:
+  /community/communities:
     get:
       tags: [Community]
       summary: List AlphaFeed communities and the caller's membership state

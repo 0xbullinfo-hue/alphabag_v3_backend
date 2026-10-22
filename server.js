@@ -1,7 +1,6 @@
 import './src/config/validateOnBoot.js';
 import defiRewardsRouter from './src/routes/defiRewards.js';
 import cexTestRouter from './src/routes/cexTest.js';
-import adminAuditLogRouter from './src/routes/adminAuditLog.js';
 // server.js handles initialization and listening
 import app from './src/app.js';
 import { config } from './src/config/env.js';
