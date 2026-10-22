@@ -31,6 +31,7 @@ function classifyError(error) {
   const status = error?.response?.status;
   if (status === 401 || status === 403) return 'AUTH_FAILED';
   if (status === 429) return 'RATE_LIMITED';
+  if (status === 406) return 'QUOTA_EXHAUSTED';
   if (status >= 500) return 'UNAVAILABLE';
   if (error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT' || /timeout/i.test(error?.message || '')) return 'TIMEOUT';
   if (error?.code === 'ECONNREFUSED' || error?.code === 'ENOTFOUND') return 'UNAVAILABLE';
@@ -49,6 +50,7 @@ async function probeHttp(url, options = {}) {
     let status = 'HEALTHY';
     if (response.status === 401 || response.status === 403) status = 'AUTH_FAILED';
     else if (response.status === 429) status = 'RATE_LIMITED';
+    else if (response.status === 406) status = 'QUOTA_EXHAUSTED';
     else if (response.status >= 500) status = 'UNAVAILABLE';
     else if (response.status >= 400) status = 'ERROR';
     else if (latencyMs > 2500) status = 'DEGRADED';
@@ -163,6 +165,14 @@ export async function checkProvider(name) {
         headers: { 'X-API-Key': key },
       });
       return { provider: 'moralis', kind: 'defi', ...probe };
+    }
+    case 'coinstats': {
+      const key = process.env.COINSTATS_API_KEY;
+      if (!key) return { provider: 'coinstats', kind: 'market', status: 'UNCONFIGURED' };
+      const probe = await probeHttp('https://openapiv1.coinstats.app/coins?limit=1', {
+        headers: { 'X-API-KEY': key, Accept: 'application/json' },
+      });
+      return { provider: 'coinstats', kind: 'market', ...probe };
     }
     case 'coingecko': {
       const key = process.env.COINGECKO_API_KEY;
