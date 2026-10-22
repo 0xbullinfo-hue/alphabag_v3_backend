@@ -71,7 +71,13 @@ export const getDefiPositions = async (req, res) => {
   try {
     const rawAddress = req.query.address || req.user?.verifiedWallet || req.user?.wallet || req.user?.address;
     if (!rawAddress) {
-      return res.status(400).json({ error: 'wallet address required' });
+      return res.status(200).json({
+        success: true,
+        complete: true,
+        positions: [],
+        source: 'none',
+        message: 'No wallet address connected'
+      });
     }
 
     const address = String(rawAddress).trim().toLowerCase();

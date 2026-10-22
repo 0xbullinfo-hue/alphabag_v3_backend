@@ -1,5 +1,5 @@
 import express from 'express';
-import { getPrices, searchCoins, getCoinsMarkets, getGlobalOverview, getLiveNewsFeed, getCoinDetails, streamMarketTicker } from '../controllers/marketController.js';
+import { getPrices, searchCoins, getCoinsMarkets, getGlobalOverview, getLiveNewsFeed, getCoinDetails, getFearGreed, streamMarketTicker } from '../controllers/marketController.js';
 import { tokenPriceController } from '../controllers/tokenPriceController.js';
 import { dexController } from '../controllers/dexController.js';
 import { getAddressTransactions, getTopHolders, followWhale, unfollowWhale, getFollows, getTransactions, getWallets, getTokenTransfers } from '../controllers/whaleController.js';
@@ -8,7 +8,7 @@ import { getHistory, saveSnapshot } from '../controllers/historyController.js';
 import { getBalances, streamPortfolio, getSolanaPortfolio, getNetWorth, getCanonicalPortfolio } from '../controllers/portfolioController.js';
 import { getDefiPositions, getDefiOpportunities } from '../controllers/defiController.js';
 import { createConnection, deleteConnection, getBalances as getCexBalances, listConnections, getTradeHistory, getAccountCoverage, getServerInfo } from '../controllers/cexController.js';
-import { verifyToken } from '../middleware/authMiddleware.js';
+import { verifyToken, optionalAuth } from '../middleware/authMiddleware.js';
 
 const marketRouter = express.Router();
 marketRouter.get('/prices', getPrices);
@@ -16,8 +16,11 @@ marketRouter.get('/coins/markets', getCoinsMarkets);
 marketRouter.get('/search', searchCoins);
 marketRouter.get('/token-price', tokenPriceController.getTokenPrices);
 marketRouter.get('/global', getGlobalOverview);
+marketRouter.get('/global-stats', getGlobalOverview);
 marketRouter.get('/overview', getGlobalOverview);
+marketRouter.get('/fear-greed', getFearGreed);
 marketRouter.get('/news', getLiveNewsFeed);
+marketRouter.get('/coins/:id', getCoinDetails);
 marketRouter.get('/coins/:coinId', getCoinDetails);
 
 const dexRouter = express.Router();
@@ -46,7 +49,7 @@ portfolioRouter.get('/public-balances', getBalances);
 portfolioRouter.get('/balances', verifyToken, getBalances);
 portfolioRouter.get('/net-worth', verifyToken, getNetWorth);
 portfolioRouter.get('/canonical', verifyToken, getCanonicalPortfolio);
-portfolioRouter.get('/defi', verifyToken, getDefiPositions);
+portfolioRouter.get('/defi', optionalAuth, getDefiPositions);
 portfolioRouter.get('/defi/opportunities', getDefiOpportunities);
 portfolioRouter.get('/solana', getSolanaPortfolio);
 portfolioRouter.post('/snapshot', saveSnapshot);

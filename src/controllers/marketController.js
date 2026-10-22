@@ -309,6 +309,30 @@ export const getCoinDetails = async (req, res) => {
  * GET /api/stream/ticker
  * Server-Sent Events (SSE) live price ticker stream
  */
+const fngCache = new NodeCache({ stdTTL: 300, checkperiod: 600 });
+
+export const getFearGreed = async (req, res) => {
+  const cacheKey = 'fear_and_greed_index';
+  if (fngCache.has(cacheKey)) {
+    return res.json(fngCache.get(cacheKey));
+  }
+  try {
+    const r = await axios.get('https://api.alternative.me/fng/?limit=1', { timeout: 10000 });
+    const d = r.data?.data?.[0];
+    const result = {
+      value: Number(d?.value ?? 50),
+      classification: d?.value_classification ?? 'Neutral',
+      timestamp: d?.timestamp ? Number(d.timestamp) : Math.floor(Date.now() / 1000),
+      nextUpdate: 'Real-time'
+    };
+    fngCache.set(cacheKey, result);
+    res.json(result);
+  } catch (e) {
+    console.warn('[Market] Fear & Greed fetch failed:', e.message);
+    res.status(502).json({ error: 'Fear & Greed unavailable', value: 50, classification: 'Neutral' });
+  }
+};
+
 export const streamMarketTicker = async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
