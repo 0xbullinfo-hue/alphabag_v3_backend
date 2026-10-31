@@ -67,6 +67,29 @@ function sanitizeData(modelName, data) {
     return sanitized;
 }
 
+const normalizedVerifiedWallet = (wallet) => {
+    const normalized = typeof wallet === 'string' ? wallet.trim().toLowerCase() : '';
+    return normalized || null;
+};
+
+function applyUserWalletRevocation(current, patch) {
+    if (!Object.prototype.hasOwnProperty.call(patch, 'verifiedWallet') ||
+        normalizedVerifiedWallet(current.verifiedWallet) === normalizedVerifiedWallet(patch.verifiedWallet)) return patch;
+    const nextVersion = (current.tokenVersion ?? 0) + 1;
+    patch.tokenVersion = Math.max(nextVersion, patch.tokenVersion ?? nextVersion);
+    return patch;
+}
+
+function matchesQuery(item, query) {
+    return Object.keys(query).every((key) => {
+        const expected = query[key];
+        if (expected && typeof expected === 'object' && expected.mode === 'insensitive' && 'equals' in expected) {
+            return typeof item[key] === 'string' && item[key].toLowerCase() === String(expected.equals).toLowerCase();
+        }
+        return item[key] === expected;
+    });
+}
+
 class StoreService {
     constructor() {
         this.mutex = Promise.resolve();
@@ -227,7 +250,7 @@ class StoreService {
                     if (isDev) {
                         const items = memStore.get(collection) || [];
                         if (Object.keys(query).length === 0) return items;
-                        return items.filter(item => Object.keys(query).every(key => item[key] === query[key]));
+                        return items.filter(item => matchesQuery(item, query));
                     }
                     throw new StoreUnavailableError(`Database connection failed on findMany ${collection}`);
                 }
@@ -262,7 +285,7 @@ class StoreService {
                 if (error && (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED') || error.name === 'AggregateError')) {
                     if (isDev) {
                         const items = memStore.get(collection) || [];
-                        return items.find(item => Object.keys(normalizedQuery).every(key => item[key] === normalizedQuery[key])) || null;
+                        return items.find(item => matchesQuery(item, normalizedQuery)) || null;
                     }
                     throw new StoreUnavailableError(`Database connection failed on findOne ${collection}`);
                 }
@@ -375,6 +398,7 @@ class StoreService {
                 if (typeof patch !== 'object') return current;
 
                 if (modelName === 'user') {
+                    applyUserWalletRevocation(current, patch);
                     if (patch.airdropSubmittedAt) patch.airdropSubmittedAt = new Date(patch.airdropSubmittedAt);
                     if (patch.lastActive) patch.lastActive = new Date(patch.lastActive);
                     if (patch.lastDailyTaskAt) patch.lastDailyTaskAt = new Date(patch.lastDailyTaskAt);
@@ -400,7 +424,9 @@ class StoreService {
                         const items = memStore.get(collection) || (await this.read(collection)) || [];
                         const idx = items.findIndex(item => item.id === id);
                         if (idx !== -1) {
-                            const updated = { ...items[idx], ...(updateFn(items[idx]) || {}) };
+                            const fallbackPatch = updateFn(items[idx]) || {};
+                            if (modelName === 'user') applyUserWalletRevocation(items[idx], fallbackPatch);
+                            const updated = { ...items[idx], ...fallbackPatch };
                             items[idx] = updated;
                             memStore.set(collection, items);
                             return updated;
@@ -427,6 +453,7 @@ class StoreService {
                     if (typeof patch !== 'object') return target;
 
                     if (modelName === 'user') {
+                        applyUserWalletRevocation(target, patch);
                         if (patch.airdropSubmittedAt) patch.airdropSubmittedAt = new Date(patch.airdropSubmittedAt);
                         if (patch.lastActive) patch.lastActive = new Date(patch.lastActive);
                         if (patch.lastDailyTaskAt) patch.lastDailyTaskAt = new Date(patch.lastDailyTaskAt);
@@ -452,7 +479,9 @@ class StoreService {
                             const items = memStore.get(collection) || (await this.read(collection)) || [];
                             const idx = items.findIndex(predicate);
                             if (idx !== -1) {
-                                const updated = { ...items[idx], ...(updateFn(items[idx]) || {}) };
+                                const fallbackPatch = updateFn(items[idx]) || {};
+                                if (modelName === 'user') applyUserWalletRevocation(items[idx], fallbackPatch);
+                                const updated = { ...items[idx], ...fallbackPatch };
                                 items[idx] = updated;
                                 memStore.set(collection, items);
                                 return updated;
@@ -568,4 +597,3 @@ class StoreService {
 
 export const store = new StoreService();
 store.prisma = prisma;
-

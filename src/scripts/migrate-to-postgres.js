@@ -73,7 +73,7 @@ async function main() {
                 bagTokens: parseFloat(u.bagTokens) || 0,
                 lifetimeEarned: parseFloat(u.lifetimeEarned) || 0,
                 aipoints: parseInt(u.aipoints) || 0,
-                verifiedWallet: u.verifiedWallet || null,
+                verifiedWallet: u.verifiedWallet || u.wallet || null,
                 submittedWallet: u.submittedWallet || null,
                 preferredWallet: u.preferredWallet || null,
                 airdropSubmitted: !!u.airdropSubmitted,

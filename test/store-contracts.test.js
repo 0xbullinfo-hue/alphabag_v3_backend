@@ -47,6 +47,60 @@ test('F-01: store.update with predicate resolves and does not throw SCALING_GUAR
     assert.equal(updated.items, 250);
 });
 
+test('store user updates revoke sessions once when verifiedWallet changes', async (t) => {
+    const delegate = store.prisma.user;
+    const originals = { findUnique: delegate.findUnique, findMany: delegate.findMany, update: delegate.update };
+    t.after(() => Object.assign(delegate, originals));
+    let current = { id: 'wallet-change-test', verifiedWallet: '0xAAA', tokenVersion: 5 };
+    let lastData;
+    delegate.findUnique = async () => ({ ...current });
+    delegate.findMany = async () => [{ ...current }];
+    delegate.update = async ({ data }) => {
+        lastData = { ...data };
+        current = { ...current, ...data };
+        return { ...current };
+    };
+
+    const changed = await store.updateById('users', current.id, () => ({ verifiedWallet: '0xBBB' }));
+    assert.equal(changed.tokenVersion, 6);
+    assert.equal(lastData.tokenVersion, 6);
+
+    const unchangedById = await store.updateById('users', current.id, () => ({ verifiedWallet: ' 0XbBb ' }));
+    assert.equal(unchangedById.tokenVersion, 6);
+    assert.equal('tokenVersion' in lastData, false);
+
+    const changedByPredicate = await store.update('users', (user) => user.id === current.id, () => ({ verifiedWallet: null }));
+    assert.equal(changedByPredicate.tokenVersion, 7);
+
+    const unchangedNull = await store.update('users', (user) => user.id === current.id, () => ({ verifiedWallet: '' }));
+    assert.equal(unchangedNull.tokenVersion, 7);
+
+    const explicitHigher = await store.updateById('users', current.id, () => ({ verifiedWallet: '0xCCC', tokenVersion: 12 }));
+    assert.equal(explicitHigher.tokenVersion, 12);
+});
+
+test('dev memory fallback increments tokenVersion only for a changed verified wallet', async (t) => {
+    const delegate = store.prisma.user;
+    const originals = { create: delegate.create, findUnique: delegate.findUnique, findMany: delegate.findMany, update: delegate.update };
+    t.after(() => Object.assign(delegate, originals));
+    const unavailable = () => Object.assign(new Error('ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    delegate.create = async () => { throw unavailable(); };
+    delegate.findUnique = async () => { throw unavailable(); };
+    delegate.findMany = async () => { throw unavailable(); };
+    delegate.update = async () => { throw unavailable(); };
+
+    const id = `wallet-fallback-${Date.now()}-${Math.random()}`;
+    await store.create('users', { id, verifiedWallet: '0xAbCd', tokenVersion: 4 });
+
+    const changed = await store.updateById('users', id, () => ({ verifiedWallet: '0x1234' }));
+    assert.equal(changed.tokenVersion, 5);
+    assert.equal(changed.verifiedWallet, '0x1234');
+
+    const unchanged = await store.updateById('users', id, () => ({ verifiedWallet: ' 0X1234 ' }));
+    assert.equal(unchanged.tokenVersion, 5);
+    assert.equal(unchanged.verifiedWallet, ' 0X1234 ');
+});
+
 test('F-02: approveTokenRequest rejects fabricated / synthetic transaction hashes', async () => {
     const req = {
         params: { id: 'test-req-1' },
