@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { config } from '../src/config/env.js';
 import { store } from '../src/services/storeService.js';
 import { verifyToken } from '../src/middleware/authMiddleware.js';
@@ -106,21 +107,34 @@ test('Phase 3 — TokenVersion session revocation', async () => {
   store.findOne = originalStoreMethods.findOne;
 });
 
-test('Phase 3 — Admin portal key rejects timing attack / invalid key', async () => {
-  config.adminPortalKey = 'super-secret-admin-key-alphabag';
+test('Admin login requires the stored password and does not require a client portal secret', async () => {
+  const originalPassword = await bcrypt.hash('correct-password', 4);
+  const originalAdmin = store.findOne;
+  const originalUpdate = store.updateById;
+  store.findOne = async (collection) => collection === 'admins'
+    ? { id: 'admin-login-1', email: 'admin@alphabag.io', password: originalPassword, tokenVersion: 0 }
+    : null;
+  store.updateById = async (_collection, _id, update) => ({
+    id: 'admin-login-1',
+    email: 'admin@alphabag.io',
+    tokenVersion: 0,
+    ...update({ id: 'admin-login-1', email: 'admin@alphabag.io', tokenVersion: 0 }),
+  });
 
-  const reqInvalid = {
-    body: {
-      portal: 'admin',
-      adminPortalKey: 'wrong-key',
-      email: 'admin@alphabag.io',
-      password: 'password123',
-    },
-  };
-  const resInvalid = createMockResponse();
-  await login(reqInvalid, resInvalid);
-  assert.equal(resInvalid.statusCode, 403);
-  assert.match(resInvalid.body.error, /Invalid credentials/i);
+  try {
+    const resInvalid = createMockResponse();
+    await login({ body: { portal: 'admin', email: 'admin@alphabag.io', password: 'wrong-password' } }, resInvalid);
+    assert.equal(resInvalid.statusCode, 400);
+
+    const resValid = createMockResponse();
+    await login({ body: { portal: 'admin', email: 'admin@alphabag.io', password: 'correct-password' } }, resValid);
+    assert.equal(resValid.statusCode, 200);
+    assert.equal(resValid.body.user.isAdmin, true);
+    assert.equal(typeof resValid.body.token, 'string');
+  } finally {
+    store.findOne = originalAdmin;
+    store.updateById = originalUpdate;
+  }
 });
 
 test('Phase 3 — AI Quota resolves tier from DB and caps ULTIMATE tier', async () => {

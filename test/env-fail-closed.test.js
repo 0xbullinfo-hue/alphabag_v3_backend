@@ -13,7 +13,6 @@ const GOOD = {
   JWT_SECRET: 'a'.repeat(48),
   CEX_ENCRYPTION_KEY: 'ab'.repeat(32),
   FRONTEND_URL: 'https://app.alphabag.xyz',
-  ADMIN_PORTAL_KEY: 'portal-key-placeholder',
 };
 
 function run(env) {
@@ -46,7 +45,9 @@ test('CEX key, wildcard frontend, http frontend and zero-address token are rejec
   assert.equal(run({ ...GOOD, FRONTEND_URL: '*' }), 1);
   assert.equal(run({ ...GOOD, FRONTEND_URL: 'http://app.alphabag.xyz' }), 1);
   assert.equal(run({ ...GOOD, BAG_TOKEN_ADDRESS: '0x0000000000000000000000000000000000000000' }), 1);
-  assert.equal(run({ ...GOOD, ADMIN_PORTAL_KEY: '' }), 1);
+  assert.equal(run({ ...GOOD, CORS_ALLOWED_ORIGINS: 'https://app.alphabag.xyz,https://admin.alphabag.xyz' }), null);
+  assert.equal(run({ ...GOOD, CORS_ALLOWED_ORIGINS: 'https://app.alphabag.xyz,*' }), 1);
+  assert.equal(run({ ...GOOD, CORS_ALLOWED_ORIGINS: 'http://admin.alphabag.xyz' }), 1);
 });
 
 test('valid production config passes', () => {

@@ -2,7 +2,7 @@ import express from 'express';
 import { getPrices, searchCoins, getCoinsMarkets, getGlobalOverview, getLiveNewsFeed, getCoinDetails, getFearGreed, streamMarketTicker } from '../controllers/marketController.js';
 import { tokenPriceController } from '../controllers/tokenPriceController.js';
 import { dexController } from '../controllers/dexController.js';
-import { getAddressTransactions, getTopHolders, followWhale, unfollowWhale, getFollows, getTransactions, getWallets, getTokenTransfers } from '../controllers/whaleController.js';
+import { getAddressTransactions, getSolanaAddressTransactions, getTopHolders, followWhale, unfollowWhale, getFollows, getTransactions, getWallets, getTokenTransfers } from '../controllers/whaleController.js';
 import { getBriefing, analyzePortfolio, streamNeuralCore, chatWithAi } from '../controllers/aiController.js';
 import { getHistory, saveSnapshot } from '../controllers/historyController.js';
 import { getBalances, streamPortfolio, getSolanaPortfolio, getNetWorth, getCanonicalPortfolio } from '../controllers/portfolioController.js';
@@ -28,6 +28,7 @@ dexRouter.get('/search', dexController.searchPairs);
 dexRouter.get('/tokens/:tokenAddress', dexController.getTokenPairs);
 
 const whaleRouter = express.Router();
+whaleRouter.get('/solana/:address/transactions', getSolanaAddressTransactions);
 whaleRouter.get('/address/:address/transactions', getAddressTransactions);
 whaleRouter.get('/transactions', getTransactions);
 whaleRouter.get('/wallets', getWallets);

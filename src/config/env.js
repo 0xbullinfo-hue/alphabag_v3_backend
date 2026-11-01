@@ -38,7 +38,10 @@ export function collectEnvErrors(env = process.env) {
   if (!env.FRONTEND_URL || !/^https:\/\/[^*\s]+$/.test(env.FRONTEND_URL)) {
     errors.push('FRONTEND_URL must be an explicit https origin (no wildcard)');
   }
-  if (!env.ADMIN_PORTAL_KEY) errors.push('ADMIN_PORTAL_KEY is required');
+  const corsOrigins = (env.CORS_ALLOWED_ORIGINS || '').split(',').map((origin) => origin.trim()).filter(Boolean);
+  if (corsOrigins.some((origin) => !/^https:\/\/[^*\s]+$/.test(origin))) {
+    errors.push('CORS_ALLOWED_ORIGINS must contain only explicit https origins');
+  }
   if (env.BAG_TOKEN_ADDRESS && env.BAG_TOKEN_ADDRESS.toLowerCase() === ZERO_ADDRESS) {
     errors.push('BAG_TOKEN_ADDRESS must not be the zero address');
   }
@@ -79,9 +82,10 @@ export const config = {
   isProduction,
   jwtSecret: process.env.JWT_SECRET || (isDev ? devRandom(32) : ''),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3005',
+  corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || '')
+    .split(',').map((origin) => origin.trim()).filter(Boolean),
   dbUrl: process.env.DATABASE_URL || '',
   adminSetupSecret: process.env.ADMIN_SETUP_SECRET || null,
-  adminPortalKey: process.env.ADMIN_PORTAL_KEY || '',
   localAdminPreviewEmail: process.env.LOCAL_ADMIN_PREVIEW_EMAIL || '',
   localAdminPreviewPassword: process.env.LOCAL_ADMIN_PREVIEW_PASSWORD || '',
   alchemyApiKey: process.env.ALCHEMY_API_KEY || '',

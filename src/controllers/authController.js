@@ -7,7 +7,6 @@
 //   4. Added removeAdmin() for admin revocation
 //   5. Preserved SIWE auth, referral tracking, and real on-chain upgrade verification
 
-import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { generateNonce, SiweMessage } from 'siwe';
@@ -162,7 +161,7 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-    const { email, password, portal, adminPortalKey } = req.body;
+    const { email, password, portal } = req.body;
     const isAdminPortal = portal === 'admin';
 
     if (!isAdminPortal) {
@@ -205,17 +204,6 @@ export const login = async (req, res) => {
         return res.status(410).json({
             error: 'Email/password login is not available for user accounts. Please connect your wallet to sign in.'
         });
-    }
-
-    if (!config.adminPortalKey) {
-        return res.status(503).json({ error: 'Admin portal is not available.' });
-    }
-
-    // Timing-safe comparison of adminPortalKey to prevent timing attacks
-    const providedKeyHash = crypto.createHash('sha256').update(String(adminPortalKey || '')).digest();
-    const actualKeyHash = crypto.createHash('sha256').update(String(config.adminPortalKey)).digest();
-    if (!crypto.timingSafeEqual(providedKeyHash, actualKeyHash)) {
-        return res.status(403).json({ error: 'Invalid credentials' });
     }
 
         // ── LOCAL ADMIN PREVIEW CREDENTIALS CHECK ────────────────────────────────

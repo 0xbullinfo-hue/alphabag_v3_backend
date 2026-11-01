@@ -68,6 +68,36 @@ export const whaleController = {
     }
   },
 
+  async getSolanaAddressTransactions(req, res) {
+    const { address } = req.params;
+    if (!SOLANA_ADDRESS_PATTERN.test(address)) {
+      return res.status(400).json({ error: 'A valid Solana address is required' });
+    }
+    if (!process.env.MORALIS_API_KEY) {
+      return res.status(503).json({ error: 'Whale transaction data is not configured' });
+    }
+
+    try {
+      const response = await axios.get(`https://solana-gateway.moralis.io/account/mainnet/${address}/transfers`, {
+        headers: { accept: 'application/json', 'X-API-Key': process.env.MORALIS_API_KEY },
+        params: { limit: 20 },
+        timeout: 10000,
+      });
+      res.json((Array.isArray(response.data) ? response.data : []).map((tx) => ({
+        hash: tx.signature,
+        from: tx.from_address || 'System',
+        to: tx.to_address || 'System',
+        value: (Number(tx.value) / 1e9).toFixed(4),
+        timeStamp: String(new Date(tx.blockTime * 1000).getTime() / 1000),
+        tokenSymbol: 'SOL',
+        tokenDecimal: '9',
+      })));
+    } catch (error) {
+      console.error('[WhaleController] Solana address transactions error:', error.message);
+      res.status(502).json({ error: 'Unable to retrieve Solana transaction data' });
+    }
+  },
+
   // GET /api/whales/transactions?chain=eth&limit=50
   async getTransactions(req, res) {
     try {
@@ -265,6 +295,7 @@ export const whaleController = {
 
 export const getTopHolders = whaleController.getTopHolders;
 export const getAddressTransactions = whaleController.getAddressTransactions;
+export const getSolanaAddressTransactions = whaleController.getSolanaAddressTransactions;
 export const followWhale = whaleController.followWhale;
 export const unfollowWhale = whaleController.unfollowWhale;
 export const getFollows = whaleController.getFollows;

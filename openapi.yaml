@@ -206,6 +206,25 @@ components:
           type: string
           example: "Optional error details"
 
+    WhaleTransaction:
+      type: object
+      required: [hash, from, to, value, timeStamp]
+      properties:
+        hash:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        value:
+          type: string
+        timeStamp:
+          type: string
+        tokenSymbol:
+          type: string
+        tokenDecimal:
+          type: string
+
     FeatureFlags:
       type: object
       required:
@@ -997,6 +1016,95 @@ paths:
                 $ref: '#/components/schemas/PortfolioBalancesResponse'
         '400':
           description: Invalid address or query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /whales/address/{address}/transactions:
+    get:
+      tags:
+        - Whales
+      summary: Get EVM wallet token transactions through the backend provider
+      security: []
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+        - name: chainId
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 56
+            enum: [1, 56, 137, 42161, 43114, 8453]
+      responses:
+        '200':
+          description: Recent wallet transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WhaleTransaction'
+        '400':
+          description: Invalid address or unsupported chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Transaction provider is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Transaction provider is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /whales/solana/{address}/transactions:
+    get:
+      tags:
+        - Whales
+      summary: Get Solana wallet transfers through the backend provider
+      security: []
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[1-9A-HJ-NP-Za-km-z]{32,44}$'
+      responses:
+        '200':
+          description: Recent Solana transfers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WhaleTransaction'
+        '400':
+          description: Invalid Solana address
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Transaction provider is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Transaction provider is not configured
           content:
             application/json:
               schema:

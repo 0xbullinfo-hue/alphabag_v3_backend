@@ -52,7 +52,7 @@ const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (config.isProduction) {
-      if (origin === config.frontendUrl) return callback(null, true);
+      if (config.corsAllowedOrigins.includes(origin)) return callback(null, true);
       console.warn(`[CORS] Blocked origin: ${origin}`);
       return callback(new Error('Not allowed by CORS'));
     }
