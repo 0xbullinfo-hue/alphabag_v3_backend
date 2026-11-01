@@ -168,6 +168,9 @@ components:
           type: string
           description: Required for FINAL_REVIEW missions
           example: Great experience!
+        captchaToken:
+          type: string
+          description: Optional Turnstile verification token for protected claims
 
     ClaimMissionResponse:
       type: object
@@ -224,6 +227,159 @@ components:
           type: string
         tokenDecimal:
           type: string
+
+    Signal:
+      type: object
+      required: [id, pair, type, status]
+      properties:
+        id:
+          type: string
+        pair:
+          type: string
+        type:
+          type: string
+        entry:
+          type: string
+          nullable: true
+        stopLoss:
+          type: string
+          nullable: true
+        targets:
+          type: array
+          items:
+            type: string
+        narrative:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        risk:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [ACTIVE, HIT, LOSS, CLOSED, PENDING]
+        timestamp:
+          type: string
+          nullable: true
+        contractAddress:
+          type: string
+          nullable: true
+        socialLinks:
+          type: object
+          additionalProperties: true
+        isBlurred:
+          type: boolean
+        message:
+          type: string
+
+    SignalListResponse:
+      type: object
+      required: [signals, updatedAt]
+      properties:
+        signals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Signal'
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminSignalRequest:
+      type: object
+      required: [pair, type]
+      properties:
+        pair:
+          type: string
+        type:
+          type: string
+        entry:
+          type: string
+        stopLoss:
+          type: string
+        targets:
+          type: array
+          items:
+            type: string
+        narrative:
+          type: string
+        category:
+          type: string
+        risk:
+          type: string
+        description:
+          type: string
+        socialLinks:
+          type: object
+          additionalProperties: true
+        relevantInfo:
+          type: string
+        tokenInfo:
+          type: object
+          additionalProperties: true
+        leverage:
+          type: string
+        contractAddress:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, HIT, LOSS, CLOSED, PENDING]
+
+    AdminSignalUpdateRequest:
+      type: object
+      properties:
+        pair:
+          type: string
+        type:
+          type: string
+        entry:
+          type: string
+        stopLoss:
+          type: string
+        targets:
+          type: array
+          items:
+            type: string
+        narrative:
+          type: string
+        category:
+          type: string
+        risk:
+          type: string
+        description:
+          type: string
+        socialLinks:
+          type: object
+          additionalProperties: true
+        relevantInfo:
+          type: string
+        tokenInfo:
+          type: object
+          additionalProperties: true
+        leverage:
+          type: string
+        contractAddress:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, HIT, LOSS, CLOSED, PENDING]
+
+    AdminSignalMutationResponse:
+      type: object
+      required: [success, item]
+      properties:
+        success:
+          type: boolean
+        item:
+          $ref: '#/components/schemas/Signal'
+
+    SignalDeleteResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
 
     FeatureFlags:
       type: object
@@ -497,6 +653,9 @@ components:
         itemsToBagRate:
           type: number
           nullable: true
+        campaignEnded:
+          type: boolean
+          description: Server-authoritative campaign completion state
         isDeactivated:
           type: boolean
           example: false
@@ -722,7 +881,17 @@ components:
           type: boolean
         isFounderAirdrop:
           type: boolean
+        isBanned:
+          type: boolean
+        strikes:
+          type: integer
         projectName:
+          type: string
+          nullable: true
+        projectLogo:
+          type: string
+          nullable: true
+        projectBanner:
           type: string
           nullable: true
         projectTicker:
@@ -755,6 +924,7 @@ components:
       type: object
       required:
         - id
+        - timestamp
       properties:
         id:
           type: string
@@ -784,6 +954,12 @@ components:
           type: number
         pointsEarned:
           type: number
+        proofLink:
+          type: string
+          nullable: true
+        feedback:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -1105,6 +1281,147 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '503':
           description: Transaction provider is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /signals:
+    get:
+      tags:
+        - AlphaCalls
+      summary: Get AlphaCalls signals with tier-filtered details
+      description: Anonymous and non-ULTIMATE users receive blurred non-free signal fields; ULTIMATE users and admins receive full details.
+      security: []
+      responses:
+        '200':
+          description: Signal list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Signal'
+        '503':
+          description: Signal store unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /signals/stream:
+    get:
+      tags:
+        - AlphaCalls
+      summary: Subscribe to tier-filtered AlphaCalls signal updates
+      description: Server-Sent Events stream. Sends an initial snapshot and a new snapshot after each admin signal mutation. ULTIMATE and admin visibility is resolved server-side.
+      security: []
+      responses:
+        '200':
+          description: Signal snapshots as server-sent events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /admin/signals:
+    post:
+      tags:
+        - Admin
+      summary: Create an AlphaCalls signal
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminSignalRequest'
+      responses:
+        '200':
+          description: Signal created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSignalMutationResponse'
+        '400':
+          description: Required fields are invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin role required
+
+  /admin/signals/{id}:
+    put:
+      tags:
+        - Admin
+      summary: Update an AlphaCalls signal
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminSignalUpdateRequest'
+      responses:
+        '200':
+          description: Signal updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSignalMutationResponse'
+        '400':
+          description: Signal update is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin role required
+        '404':
+          description: Signal not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Admin
+      summary: Delete an AlphaCalls signal
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Signal deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalDeleteResponse'
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin role required
+        '404':
+          description: Signal not found
           content:
             application/json:
               schema:

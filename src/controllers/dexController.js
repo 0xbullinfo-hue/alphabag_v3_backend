@@ -3,6 +3,34 @@ import { getOrSetCache } from '../utils/cache.js';
 
 const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 const CACHE_TTL = 30; // 30 seconds for DEX data
+const MAX_RETRIES = 3;
+const MAX_RETRY_DELAY_MS = 5000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const retryDelay = (error, retryCount) => {
+  const retryAfter = error.response?.headers?.['retry-after'];
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const retryAt = Number.isFinite(seconds) ? Date.now() + seconds * 1000 : Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) return Math.min(MAX_RETRY_DELAY_MS, Math.max(0, retryAt - Date.now()));
+  }
+  const exponential = Math.min(MAX_RETRY_DELAY_MS, 250 * (2 ** (retryCount - 1)));
+  return Math.round(exponential * (0.8 + Math.random() * 0.4));
+};
+
+export async function requestDexScreener(url, options = {}, request = axios.get, wait = sleep) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await request(url, options);
+    } catch (error) {
+      const status = error.response?.status;
+      const retryable = !status || status === 429 || status >= 500;
+      if (!retryable || attempt > MAX_RETRIES) throw error;
+      await wait(retryDelay(error, attempt));
+    }
+  }
+}
 
 export const dexController = {
   // GET /api/dex/search?q=USDT
@@ -15,7 +43,7 @@ export const dexController = {
 
       const cacheKey = `dex_search_${q.trim().toLowerCase()}`;
       const result = await getOrSetCache(cacheKey, CACHE_TTL, async () => {
-        const response = await axios.get(`${DEXSCREENER_BASE}/search`, {
+        const response = await requestDexScreener(`${DEXSCREENER_BASE}/search`, {
           params: { q: q.trim() },
           timeout: 10000,
           headers: { 'User-Agent': 'AlphaBAG-Terminal/2.0' }
@@ -44,7 +72,7 @@ export const dexController = {
 
       const cacheKey = `dex_token_${tokenAddress.toLowerCase()}`;
       const result = await getOrSetCache(cacheKey, CACHE_TTL, async () => {
-        const response = await axios.get(`${DEXSCREENER_BASE}/tokens/${tokenAddress}`, {
+        const response = await requestDexScreener(`${DEXSCREENER_BASE}/tokens/${tokenAddress}`, {
           timeout: 10000,
           headers: { 'User-Agent': 'AlphaBAG-Terminal/2.0' }
         });

@@ -1,5 +1,6 @@
 
 import { store } from '../services/storeService.js';
+import { publishSignalChange } from '../services/signalEvents.js';
 
 // --- SYSTEM & USERS ---
 export const getSystemStats = async (req, res) => {
@@ -93,40 +94,39 @@ export const deleteNews = async (req, res) => {
 // Signals
 export const createSignal = async (req, res) => {
     const { pair, type, entry, stopLoss, targets, narrative, category, risk, description, socialLinks, relevantInfo, tokenInfo, leverage, contractAddress } = req.body;
+    if (typeof pair !== 'string' || !pair.trim() || typeof type !== 'string' || !type.trim()) {
+        return res.status(400).json({ error: 'pair and type are required' });
+    }
 
     const newItem = {
-        pair, type, entry, stopLoss, targets: Array.isArray(targets) ? targets : (targets ? targets.split(',') : []),
+        pair: pair.trim(), type: type.trim(), entry, stopLoss, targets: Array.isArray(targets) ? targets : (targets ? targets.split(',').map((target) => target.trim()).filter(Boolean) : []),
         narrative, category, risk, description, socialLinks, relevantInfo, tokenInfo, leverage, contractAddress,
         status: 'ACTIVE',
         timestamp: 'Just now'
     };
 
     const saved = await store.create('signals', newItem);
+    publishSignalChange({ action: 'created', signalId: saved.id });
     res.json({ success: true, item: saved });
 };
 
 export const updateSignal = async (req, res) => {
     const { id } = req.params;
-    const updates = req.body;
-    const list = await store.read('signals');
-    const index = list.findIndex(i => i.id === id);
-
-    console.log(`[DEBUG] Update Signal: ID=${id}, Found Index=${index}, Total Signals=${list.length}`);
-
-    if (index === -1) {
-        console.error(`[ERROR] Signal ID ${id} not found in store.`);
-        return res.status(404).json({ error: 'Signal not found' });
-    }
+    const allowedFields = new Set(['pair', 'type', 'entry', 'stopLoss', 'targets', 'narrative', 'category', 'risk', 'description', 'socialLinks', 'relevantInfo', 'tokenInfo', 'leverage', 'contractAddress', 'status']);
+    const updates = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => allowedFields.has(key)));
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No supported signal fields provided' });
 
     // Validate Status Update
     if (updates.status && !['ACTIVE', 'HIT', 'LOSS', 'CLOSED', 'PENDING'].includes(updates.status)) {
         return res.status(400).json({ error: 'Invalid Status' });
     }
+    if (updates.targets !== undefined && !Array.isArray(updates.targets)) {
+        return res.status(400).json({ error: 'targets must be an array' });
+    }
 
-    const updatedItem = { ...list[index], ...updates };
-    list[index] = updatedItem;
-
-    await store.write('signals', list);
+    const updatedItem = await store.updateById('signals', id, (current) => ({ ...updates }));
+    if (!updatedItem) return res.status(404).json({ error: 'Signal not found' });
+    publishSignalChange({ action: 'updated', signalId: id });
     res.json({ success: true, item: updatedItem });
 };
 
@@ -136,6 +136,7 @@ export const deleteSignal = async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Signal not found' });
 
     await store.delete('signals', id);
+    publishSignalChange({ action: 'deleted', signalId: id });
     res.json({ success: true });
 };
 

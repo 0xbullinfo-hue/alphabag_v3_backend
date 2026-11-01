@@ -9,6 +9,37 @@ import { config } from '../config/env.js';
 const coinstatsCache = new NodeCache({ stdTTL: 30, checkperiod: 60, useClones: false });
 
 const COINSTATS_BASE = 'https://openapiv1.coinstats.app';
+const MAX_RETRIES = 3;
+const BASE_RETRY_DELAY_MS = 300;
+const MAX_RETRY_DELAY_MS = 5000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const retryDelay = (error, retryCount) => {
+  const retryAfter = error.response?.headers?.['retry-after'];
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const retryAt = Number.isFinite(seconds) ? Date.now() + seconds * 1000 : Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(MAX_RETRY_DELAY_MS, Math.max(0, retryAt - Date.now()));
+    }
+  }
+  const exponential = Math.min(MAX_RETRY_DELAY_MS, BASE_RETRY_DELAY_MS * (2 ** (retryCount - 1)));
+  return Math.round(exponential * (0.8 + Math.random() * 0.4));
+};
+
+export async function requestCoinStats(url, options = {}, request = axios.get, wait = sleep) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await request(url, options);
+    } catch (error) {
+      const status = error.response?.status;
+      const retryable = !status || status === 429 || status >= 500;
+      if (!retryable || attempt > MAX_RETRIES) throw error;
+      await wait(retryDelay(error, attempt));
+    }
+  }
+}
 
 const getHeaders = () => {
   const apiKey = config.coinstatsApiKey || process.env.COINSTATS_API_KEY;
@@ -35,7 +66,7 @@ export async function getLiveCoins({ page = 1, limit = 100, currency = 'USD' } =
   if (hit) return hit;
 
   try {
-    const { data } = await axios.get(`${COINSTATS_BASE}/coins`, {
+    const { data } = await requestCoinStats(`${COINSTATS_BASE}/coins`, {
       params: { page: safePage, limit: safeLimit, currency: safeCurrency },
       headers: getHeaders(),
       timeout: 10000,
@@ -82,7 +113,7 @@ export async function getLiveCoin(coinId) {
   if (hit) return hit;
 
   try {
-    const { data } = await axios.get(`${COINSTATS_BASE}/coins/${encodeURIComponent(cleanId)}`, {
+    const { data } = await requestCoinStats(`${COINSTATS_BASE}/coins/${encodeURIComponent(cleanId)}`, {
       headers: getHeaders(),
       timeout: 10000,
     });
@@ -106,7 +137,7 @@ export async function getGlobalMarketTelemetry() {
   if (hit) return hit;
 
   try {
-    const { data } = await axios.get(`${COINSTATS_BASE}/markets`, {
+    const { data } = await requestCoinStats(`${COINSTATS_BASE}/markets`, {
       headers: getHeaders(),
       timeout: 8000,
     });
@@ -133,7 +164,7 @@ export async function getLiveNews({ page = 1, limit = 10 } = {}) {
   if (hit) return hit;
 
   try {
-    const { data } = await axios.get(`${COINSTATS_BASE}/news`, {
+    const { data } = await requestCoinStats(`${COINSTATS_BASE}/news`, {
       params: { page: safePage, limit: safeLimit },
       headers: getHeaders(),
       timeout: 8000,
@@ -208,7 +239,7 @@ export async function getWalletBalances(address, connectionType = 'ethereum') {
   if (hit) return hit;
 
   try {
-    const { data } = await axios.get(`${COINSTATS_BASE}/wallet/balance`, {
+    const { data } = await requestCoinStats(`${COINSTATS_BASE}/wallet/balance`, {
       params: { address, connectionType },
       headers: getHeaders(),
       timeout: 10000,
