@@ -53,7 +53,7 @@ portfolioRouter.get('/solana', getSolanaPortfolio);
 portfolioRouter.post('/snapshot', saveSnapshot);
 
 const streamRouter = express.Router();
-streamRouter.get('/portfolio', streamPortfolio);
+streamRouter.get('/portfolio', verifyToken, streamPortfolio);
 
 const cexRouter = express.Router();
 cexRouter.post('/connections', verifyToken, createConnection);

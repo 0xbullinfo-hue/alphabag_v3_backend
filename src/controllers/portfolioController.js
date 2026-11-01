@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 // AlphaBAG V3 — Portfolio Controller (Unified with CanonicalPortfolioService)
 
-import jwt from 'jsonwebtoken';
-import { config } from '../config/env.js';
 import { getOrSetCache } from '../utils/cache.js';
 import { CanonicalPortfolioService } from '../services/canonicalPortfolioService.js';
 import { blockchainService } from '../services/blockchainService.js';
 import { getNativePrices } from '../services/priceService.js';
+import { revalidateAuthSession } from '../middleware/authMiddleware.js';
 
 const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/i;
 
@@ -79,24 +78,8 @@ export const getNetWorth = async (req, res) => {
 };
 
 export const streamPortfolio = async (req, res) => {
-  const authHeader = req.headers['authorization'];
-  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
-  const rawToken = bearerToken || req.query.token;
-
-  if (!rawToken) {
-    return res.status(401).json({ error: 'Token required for SSE portfolio connection' });
-  }
-
-  if (req.query.token && !bearerToken) {
-    console.warn('[Security] SSE token passed via URL query parameter is deprecated. Pass via Authorization header instead.');
-  }
-
-  let user;
-  try {
-    user = jwt.verify(rawToken, config.jwtSecret, { algorithms: ['HS256'] });
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
+  const authSession = req.authSession;
+  if (!req.user || !authSession) return res.status(401).json({ error: 'Authentication required' });
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -107,6 +90,7 @@ export const streamPortfolio = async (req, res) => {
   let closed = false;
   let interval = null;
   let heartbeat = null;
+  let inFlight = false;
 
   const cleanup = () => {
     if (closed) return;
@@ -117,6 +101,7 @@ export const streamPortfolio = async (req, res) => {
   };
 
   req.on('close', cleanup);
+  res.on('close', cleanup);
   res.on('finish', cleanup);
   res.on('error', cleanup);
 
@@ -127,9 +112,17 @@ export const streamPortfolio = async (req, res) => {
   }, 15000);
 
   const pushUpdate = async () => {
-    if (closed) return;
+    if (closed || inFlight) return;
+    inFlight = true;
     try {
-      const snapshot = await CanonicalPortfolioService.getSnapshot(user);
+      const session = await revalidateAuthSession(authSession);
+      if (closed) return;
+      if (!session.valid) {
+        try { res.write('event: auth-expired\ndata: {}\n\n'); } catch (_) {}
+        cleanup();
+        return;
+      }
+      const snapshot = await CanonicalPortfolioService.getSnapshot(session.principal);
       if (closed) return;
       const payload = {
         type: 'portfolio',
@@ -148,6 +141,8 @@ export const streamPortfolio = async (req, res) => {
       if (!closed) {
         try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'Portfolio sync hiccup' })}\n\n`); } catch (_) {}
       }
+    } finally {
+      inFlight = false;
     }
   };
 

@@ -84,6 +84,20 @@ async function resolveSession(decoded, { allowDevBypass = false } = {}) {
     };
 }
 
+// Re-resolve the original verified claims from the authoritative store. A
+// long-lived stream must not continue using the principal from connect time.
+export async function revalidateAuthSession(authSession) {
+    if (!authSession?.claims || !authSession?.principal) return { valid: false, reason: 'not_found' };
+    const current = await resolveSession(authSession.claims);
+    if (!current.valid) return current;
+    const initial = authSession.principal;
+    if (current.principal.id !== initial.id || current.principal.kind !== initial.kind ||
+        current.principal.isAdmin !== initial.isAdmin) {
+        return { valid: false, reason: 'revoked', principal: null };
+    }
+    return current;
+}
+
 function verifyDecodedToken(tokenValue) {
     const decoded = jwt.verify(tokenValue, config.jwtSecret, { algorithms: ['HS256'] });
     if (decoded.iss && decoded.iss !== 'alphabag-api') {
@@ -117,6 +131,7 @@ export const verifyToken = async (req, res, next) => {
             return res.status(401).json({ error: `Unauthorized: ${decoded.isAdmin ? 'Admin' : 'User'} record not found` });
         }
         req.user = session.principal;
+        req.authSession = { claims: decoded, principal: session.principal };
         return next();
     } catch (err) {
         return next(err);
